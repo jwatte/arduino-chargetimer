@@ -5,15 +5,17 @@
 #include <Menu.h>
 #include <Settings.h>
 
+//  constants
 #define LED_PIN 13
 #define RELAY_PIN 4
 
-//  My configuration of LCD
-unsigned char lcd_[sizeof(LiquidCrystal)];
-#define lcd (*(LiquidCrystal *)lcd_)
-inline void *operator new(unsigned int sz, void *ptr) { return ptr; }
+//  forward declarations
+void menuExit();
+void turnOn();
+void turnOff();
 
-//  Strings for localization
+
+//  Strings for the menu and UI
 PROGMEM char ps_ReplaceBattery[] =  "Replace Battery";
 PROGMEM char ps_AndSetClock[] =     " And Set Clock";
 PROGMEM char ps_PleaseWait[] =      "Please Wait...";
@@ -26,7 +28,7 @@ PROGMEM char ps_SetDayOfWeek[] =    "3. Day of Week";
 PROGMEM char ps_SetClock[] =        "4. Set Date/Time";
 PROGMEM char ps_RunTimePage[] =     "Run Time: HH:MM";
 PROGMEM char ps_AdjustControls[] =  "Back  -  +  Next";
-
+PROGMEM char ps_EEPROMDead[] =      "Timer is broken.";
 //  globals
 DateTime lastDateTime;
 unsigned long lastSeconds;
@@ -44,28 +46,34 @@ struct Prefs
   unsigned char runHours;
   unsigned char runMinutes;
 };
+//  initialize prefs in setup, not as a global
 #define prefs (*(Settings<Prefs> *)prefs_)
 unsigned char prefs_[sizeof(Settings<Prefs>)];
 
+//  My configuration of LCD
+unsigned char lcd_[sizeof(LiquidCrystal)];
+#define lcd (*(LiquidCrystal *)lcd_)
+inline void *operator new(unsigned int sz, void *ptr) { return ptr; }
+
+//  return the number of seconds the prefs want us to run
 unsigned long prefsRunTime()
 {
   return (unsigned long)b2d(prefs->runMinutes) * 60UL + (unsigned long)b2d(prefs->runHours) * 3600UL;
 }
 
+//  return true if the prefs were properly loaded from eeprom (else it's probably an initial run)
 bool eepromInvalid()
 {
   return !prefs.lastOk();
 }
 
-void menuExit();
-void turnOn();
-void turnOff();
-
+//  Is a particular button pressed? (for start-up UI)
 unsigned int readKey(unsigned int key)
 {
   return analogRead(key) > 100 ? BTN_UP : BTN_DOWN;
 }
 
+//  Is any button pressed? (for start-up UI)
 bool anyKeyDown()
 {
   return readKey(A0) == BTN_DOWN || 
@@ -74,11 +82,13 @@ bool anyKeyDown()
     readKey(A3) == BTN_DOWN;
 }
 
+//  Convert BCD to decimal
 static unsigned char b2d(unsigned char b)
 {
   return ((b & 0xf0) >> 4) * 10 + (b & 0xf);
 }
 
+//  Top line of main menu/display -- current time
 class MainText : public Paint
 {
 public:
@@ -94,6 +104,7 @@ public:
 };
 MainText mainText;
 
+//  Bottom line of main menu/display -- soft buttons, and run time
 class MainAction : public Action
 {
 public:
@@ -145,6 +156,7 @@ NavPage nm2(&first, ps_SetDayOfMonth);
 NavPage nm3(&first, ps_SetDayOfWeek);
 NavPage nm4(&first, ps_SetClock);
 
+//  RunTime menu
 class SetRunTimeText : public Paint
 {
 public:
@@ -243,6 +255,7 @@ public:
 };
 SetRunTimeText srtText;
 
+//  RunTime adjusting
 class SetRunTimeAction : public Action
 {
 public:
@@ -260,11 +273,13 @@ SetRunTimeAction srtAction;
 Page setRunTimePage(&nm1, &srtText, &srtAction);
 
 
+//  Call menuExit() to go back to beginning
 void menuExit()
 {
   menu.reset();
 }
 
+//  During start-up, when detecting a user reset, wait to proceed
 void waitForAnyButtonPress()
 {
   //  wait for key up, if down
@@ -295,6 +310,7 @@ void blinkTimes(unsigned char times, unsigned int onTime, unsigned int offTime)
   }
 }
 
+//  leftmost and rightmost button brings up user reset
 bool isResetKeyCombo()
 {
   return readKey(A0) == BTN_DOWN && readKey(A3) == BTN_DOWN;
@@ -303,25 +319,26 @@ bool isResetKeyCombo()
 
 void setup()
 {
+  //  Turn on indicator, turn off relay
   pinMode(RELAY_PIN, OUTPUT);
   digitalWrite(RELAY_PIN, LOW);
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, HIGH);
-  
   delay(10);
-  
-  new ((void *)lcd_) LiquidCrystal(7, 8, 9, 10, 11, 12);
 
-  delay(10);
-  
-  new ((void *)prefs_) Settings<Prefs>();
-
-  delay(10);
-  
+  //  Initialize serial port  
   Serial.begin(9600); // for debugging
-
   delay(10);
   
+  //  Initialize settings; read from EEPROM  
+  new ((void *)prefs_) Settings<Prefs>();
+  prefs.load();
+  delay(10);
+
+  //  Initialize LCD  
+  new ((void *)lcd_) LiquidCrystal(7, 8, 9, 10, 11, 12);
+  delay(10);
+  //  print the firmware version
   lcd.begin(16, 2);  //  for display
   lcd.clear();
   Serial.println("Firmware " __TIME__ " " __DATE__);
@@ -330,15 +347,15 @@ void setup()
   lcd.print("F/w " __DATE__);
   lcd.setCursor(3, 1);
   lcd.print(__TIME__);
-  
-  prefs.load();
-  
-  delay(600);
-  
-  Wire.begin();  //  for RTC
 
+  //  some time for user to read FW version  
+  delay(600);
+  //  at this point, Wire should be safe to start
+  Wire.begin();  //  for RTC
+  //  some time to get I2C time to stabilize (?)
   delay(200);
-  
+
+  //  Is there any reason to not just go to loop()?  
   bool timeNotOk = timeIsInvalid();
   bool eeNotOk = eepromInvalid();
   bool isReset = isResetKeyCombo();
@@ -347,8 +364,11 @@ void setup()
     if (timeNotOk) Serial.println("timeNotOk");
     if (eeNotOk) Serial.println("eeNotOk");
     if (isReset) Serial.println("isReset");
-    
-    prefs.nukeStore();
+
+    //  for debugging, to force a "bad eeprom" checksum, uncomment this
+    //  prefs.nukeStore();
+
+    // For some reason, reset the settings    
     delay(1500);
     lcd.clear();
     paintProgmem(lcd, ps_ReplaceBattery, 0, 0);
@@ -374,22 +394,30 @@ void setup()
     prefs.load();
     if (!prefs.lastOk())
     {
+      //  This probably means that the eeprom is dead
       Serial.println("save and load prefs failed");
+      lcd.clear();
+      paintProgmem(lcd, ps_EEPROMDead, 0, 0);
       blinkTimes(3, 200, 400);
     }
   }
+  
+  //  OK, we're done!
   lcd.clear();
   menu.reset();
   Serial.println("end setup()");
+  //  turn off the indicator light
   digitalWrite(LED_PIN, LOW);
 }
 
+//  Turn off the relay and light
 void turnOff()
 {
   digitalWrite(LED_PIN, LOW);
   digitalWrite(RELAY_PIN, LOW);
 }
 
+//  Turn on the relay and light
 void turnOn()
 {
   digitalWrite(LED_PIN, HIGH);
@@ -436,8 +464,9 @@ bool calculateTimerOn()
 
 void loop()
 {
+  //  Say, kids, what time is it?
   unsigned long m = millis();
-  bool changed = false;
+  bool changed = false;  //  did I change anything on the display?
 
   //  colon blinkage
   bool cb = ((m % 1000) < 800);
@@ -465,6 +494,7 @@ void loop()
       Serial.print("Detect ON: "); Serial.println(etime);
       otime = etime;
     }
+    //  todo: if I forced off, don't turn on just yet
     if (otime <= lastSeconds)
     {
       if (otime != 0)
@@ -488,21 +518,22 @@ void loop()
       }  
     }
   }
+  
+  //  If anything changed, invalidate the display
   if (changed)
   {
     menu.invalidate();
   }
-  else
-  {
-    delay(10);
-  }
-  
-  unsigned char btns = 0;
+  //  don't run out of control (?)
+  delay(5);
+
+  //  tell the menu about our button state  
   menu.button(0, readKey(A0));
   menu.button(1, readKey(A1));
   menu.button(2, readKey(A2));
   menu.button(3, readKey(A3));
   
+  //  and update the UI, run any requested button actions
   menu.step();
 }
 
