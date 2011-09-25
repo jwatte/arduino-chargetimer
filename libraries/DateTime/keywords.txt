@@ -1,0 +1,25 @@
+# data types
+DateTime KEYWORD1
+
+# functions
+readTime KEYWORD1
+writeTime KEYWORD1
+fromTime KEYWORD1
+toTime KEYWORD1
+fmtTime KEYWORD1
+fmtTime_P KEYWORD1
+bcdDec KEYWORD1
+yearStart KEYWORD1
+monthStart KEYWORD1
+dayStart KEYWORD1
+hourStart KEYWORD1
+minuteStart KEYWORD1
+
+# fields
+hours KEYWORD2
+minutes KEYWORD2
+seconds KEYWORD2
+wday KEYWORD2
+mday KEYWORD2
+month KEYWORD2
+year KEYWORD2

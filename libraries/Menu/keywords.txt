@@ -1,0 +1,16 @@
+# keywords for Menu module
+
+# functions
+button KEYWORD2
+step KEYWORD2
+reset KEYWORD2
+
+# data types
+Menu KEYWORD1
+Page KEYWORD1
+Action KEYWORD1
+Paint KEYWORD1
+
+#constants
+BTN_UP LITERAL1
+BTN_DOWN LITERAL1
