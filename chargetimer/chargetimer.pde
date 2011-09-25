@@ -29,6 +29,7 @@ PROGMEM char ps_SetClock[] =        "4. Set Date/Time";
 PROGMEM char ps_RunTimePage[] =     "Run Time: HH:MM";
 PROGMEM char ps_AdjustControls[] =  "Back  -  +  Next";
 PROGMEM char ps_EEPROMDead[] =      "Timer is broken.";
+
 //  globals
 DateTime lastDateTime;
 unsigned long lastSeconds;
@@ -46,6 +47,7 @@ struct Prefs
   unsigned char runHours;
   unsigned char runMinutes;
 };
+
 //  initialize prefs in setup, not as a global
 #define prefs (*(Settings<Prefs> *)prefs_)
 unsigned char prefs_[sizeof(Settings<Prefs>)];
