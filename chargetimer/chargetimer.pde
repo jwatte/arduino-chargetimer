@@ -462,70 +462,63 @@ bool calculateTimerOn()
   return 0;
 }
 
-void loop()
+
+//  globals shared within the context of loop
+unsigned long m;
+bool changed;
+bool cb;
+
+//  from within loop, handle timer on/off events
+void updatePeriodical()
 {
-  //  Say, kids, what time is it?
-  unsigned long m = millis();
-  bool changed = false;  //  did I change anything on the display?
-
-  //  colon blinkage
-  bool cb = ((m % 1000) < 800);
-  if (cb != colonBlink)
+  lastMillis = m;
+  readTime(lastDateTime);
+  unsigned long ls = fromTime(lastDateTime);
+  if (ls != lastSeconds)
   {
-     colonBlink = cb;
-     changed = true;
+    lastSeconds = ls;
+    changed = true;
   }
-
-  //  check for timers and time/date changing, every so often
-  if ((long)m - (long)lastMillis >= 100)
+  unsigned long etime = calculateTimerOn();
+  unsigned long otime = onUntilTime;
+  if (etime > otime)
   {
-    lastMillis = m;
-    readTime(lastDateTime);
-    unsigned long ls = fromTime(lastDateTime);
-    if (ls != lastSeconds)
+    Serial.print("Detect ON: "); Serial.println(etime);
+    otime = etime;
+  }
+  //  todo: if I forced off, don't turn on just yet
+  if (otime <= lastSeconds)
+  {
+    if (otime != 0)
     {
-      lastSeconds = ls;
-      changed = true;
-    }
-    unsigned long etime = calculateTimerOn();
-    unsigned long otime = onUntilTime;
-    if (etime > otime)
-    {
-      Serial.print("Detect ON: "); Serial.println(etime);
-      otime = etime;
-    }
-    //  todo: if I forced off, don't turn on just yet
-    if (otime <= lastSeconds)
-    {
-      if (otime != 0)
-      {
-        Serial.print("Detect OFF: "); Serial.println(onUntilTime);
-        otime = 0;
-      }
-    }
-    if (otime != onUntilTime)
-    {
-      Serial.print("Change onUntilTime to "); Serial.print(otime); Serial.print(" from "); Serial.println(onUntilTime);
-      onUntilTime = otime;
-      changed = true;
-      if (otime == 0)
-      {
-        turnOff();
-      }
-      else
-      {
-        turnOn();
-      }  
+      Serial.print("Detect OFF: "); Serial.println(onUntilTime);
+      otime = 0;
     }
   }
-  
+  if (otime != onUntilTime)
+  {
+    Serial.print("Change onUntilTime to "); Serial.print(otime); Serial.print(" from "); Serial.println(onUntilTime);
+    onUntilTime = otime;
+    changed = true;
+    if (otime == 0)
+    {
+      turnOff();
+    }
+    else
+    {
+      turnOn();
+    }  
+  }
+}
+
+//  from within loop(), handle menu display and interaction
+void updateMenu()
+{
   //  If anything changed, invalidate the display
   if (changed)
   {
     menu.invalidate();
   }
-  //  don't run out of control (?)
-  delay(5);
 
   //  tell the menu about our button state  
   menu.button(0, readKey(A0));
@@ -535,6 +528,32 @@ void loop()
   
   //  and update the UI, run any requested button actions
   menu.step();
+}
+
+void loop()
+{
+  //  Say, kids, what time is it?
+  m = millis();
+  changed = false;  //  did I change anything on the display?
+
+  //  colon blinkage
+  cb = ((m % 1000) < 800);
+  if (cb != colonBlink)
+  {
+     colonBlink = cb;
+     changed = true;
+  }
+
+  //  check for timers and time/date changing, every so often
+  if ((long)m - (long)lastMillis >= 100)
+  {
+    updatePeriodical();
+  }
+  
+  //  don't run out of control (?)
+  delay(5);
+
+  updateMenu();
 }
 
 
