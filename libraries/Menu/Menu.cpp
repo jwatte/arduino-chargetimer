@@ -3,6 +3,7 @@
 
 #include <WProgram.h>
 #include <LiquidCrystal.h>
+#include <HardwareSerial.h>
 
 char menuScratchpad[21];
 static char menuOne[21];
@@ -179,6 +180,7 @@ void Menu::action(unsigned char btn, Menu *m)
 
 void Menu::gotoPage(Page *p)
 {
+    Serial.print("gotoPage("); Serial.print((int)p, DEC); Serial.println(")");
     if (curPage)
     {
         curPage->exit();

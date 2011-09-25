@@ -9,6 +9,13 @@
 #define LED_PIN 13
 #define RELAY_PIN 4
 
+#define BAD_BUTTON() \
+    blinkTimes(2, 200, 400)
+#define BAD_STATE() \
+    blinkTimes(2, 400, 200)
+#define BAD_EEPROM() \
+    blinkTimes(3, 200, 400)
+    
 //  forward declarations
 void menuExit();
 void turnOn();
@@ -36,16 +43,17 @@ unsigned long lastSeconds;
 unsigned long onUntilTime;
 unsigned long lastMillis;
 bool colonBlink;
+bool turnedOff;
 
 //  EEPROM/settings
 struct Prefs
 {
-  unsigned char startMday;
-  unsigned char startWday;
-  unsigned char startHour;
-  unsigned char startMinute;
-  unsigned char runHours;
-  unsigned char runMinutes;
+    unsigned char startMday;
+    unsigned char startWday;
+    unsigned char startHour;
+    unsigned char startMinute;
+    unsigned char runHours;
+    unsigned char runMinutes;
 };
 
 //  initialize prefs in setup, not as a global
@@ -60,49 +68,58 @@ inline void *operator new(unsigned int sz, void *ptr) { return ptr; }
 //  return the number of seconds the prefs want us to run
 unsigned long prefsRunTime()
 {
-  return (unsigned long)b2d(prefs->runMinutes) * 60UL + (unsigned long)b2d(prefs->runHours) * 3600UL;
+    return (unsigned long)b2d(prefs->runMinutes) * 60UL + (unsigned long)b2d(prefs->runHours) * 3600UL;
 }
 
 //  return true if the prefs were properly loaded from eeprom (else it's probably an initial run)
 bool eepromInvalid()
 {
-  return !prefs.lastOk();
+    return !prefs.lastOk();
 }
 
 //  Is a particular button pressed? (for start-up UI)
-unsigned int readKey(unsigned int key)
+unsigned int readKey(unsigned int key, char serialKey)
 {
-  return analogRead(key) > 100 ? BTN_UP : BTN_DOWN;
+    //    allow keyboard-driven debugging (ultimate in laziness!)
+    if (serialKey == '1' + key - A0) {
+        return BTN_DOWN;
+    }
+    return analogRead(key) > 100 ? BTN_UP : BTN_DOWN;
 }
 
 //  Is any button pressed? (for start-up UI)
 bool anyKeyDown()
 {
-  return readKey(A0) == BTN_DOWN || 
-    readKey(A1) == BTN_DOWN || 
-    readKey(A2) == BTN_DOWN || 
-    readKey(A3) == BTN_DOWN;
+    char ch = 0;
+    if (Serial.available())
+    {
+        ch = Serial.read();
+    }
+    return readKey(A0, ch) == BTN_DOWN || 
+        readKey(A1, ch) == BTN_DOWN || 
+        readKey(A2, ch) == BTN_DOWN || 
+        readKey(A3, ch) == BTN_DOWN;
 }
 
 //  Convert BCD to decimal
 static unsigned char b2d(unsigned char b)
 {
-  return ((b & 0xf0) >> 4) * 10 + (b & 0xf);
+    return ((b & 0xf0) >> 4) * 10 + (b & 0xf);
 }
 
 //  Top line of main menu/display -- current time
 class MainText : public Paint
 {
 public:
-  void paint(char *buf)
-  {
-    fmtTime_P(buf, 17, ps_MainPage, lastDateTime);
-    if (!colonBlink)
+    void paint(char *buf)
     {
-        buf[13] = 32;  //  flash the colon
+        fmtTime_P(buf, 17, ps_MainPage, lastDateTime);
+        if (!colonBlink)
+        {
+            buf[13] = 32;  //  flash the colon
+        }
+        buf[16] = 0;
     }
-    buf[16] = 0;
-  }
 };
 MainText mainText;
 
@@ -110,43 +127,43 @@ MainText mainText;
 class MainAction : public Action
 {
 public:
-  virtual void paint(char *buf)
-  {
-    lcd.setCursor(0, 1);
-    if (onUntilTime)
+    virtual void paint(char *buf)
     {
-      strcpy_P(buf, ps_ChargingMenu);
-      fmtHrsMins(onUntilTime - lastSeconds, &buf[11]);
-      if (!colonBlink)
-      {
-        buf[13] = 32;  //  flash the colon
-      }
-      buf[16] = 0;
+        lcd.setCursor(0, 1);
+        if (onUntilTime)
+        {
+            strcpy_P(buf, ps_ChargingMenu);
+            fmtHrsMins(onUntilTime - lastSeconds, &buf[11]);
+            if (!colonBlink)
+            {
+                buf[13] = 32;  //  flash the colon
+            }
+            buf[16] = 0;
+        }
+        else
+        {
+            strcpy_P(buf, ps_Menu);
+        }
     }
-    else
+    void action(unsigned char btn, Menu *m)
     {
-      strcpy_P(buf, ps_Menu);
+        if (btn == 0)
+        {
+            m->gotoPage(m->firstChild->firstChild);
+        }
+        else if (onUntilTime != 0 && btn == 1)
+        {
+            //  cancel the active charge
+            onUntilTime = 0;
+            turnOff();
+        }
+        else if (onUntilTime == 0 && btn == 3)
+        {
+            //  turn on charge
+            turnOn();
+            onUntilTime = lastSeconds + prefsRunTime();
+        }
     }
-  }
-  void action(unsigned char btn, Menu *m)
-  {
-    if (btn == 0)
-    {
-      m->gotoPage(m->firstChild->firstChild);
-    }
-    else if (onUntilTime != 0 && btn == 1)
-    {
-      //  cancel the active charge
-      onUntilTime = 0;
-      turnOff();
-    }
-    else if (onUntilTime == 0 && btn == 3)
-    {
-      //  turn on charge
-      turnOn();
-      onUntilTime = lastSeconds + prefsRunTime();
-    }
-  }
 };
 MainAction mainAction;
 
@@ -162,98 +179,128 @@ NavPage nm4(&first, ps_SetClock);
 class SetRunTimeText : public Paint
 {
 public:
-  SetRunTimeText() : set_(false) {}
-  bool set_; // was set
-  unsigned char hours;
-  unsigned char minutes;
-  unsigned char *edit;
-  void enter()
-  {
-    hours = prefs->runHours;
-    minutes = prefs->runMinutes;
-    set_ = false;
-    edit = &hours;
-  }
-  void exit()
-  {
-    if (set_)
+    SetRunTimeText() {}
+    bool set_; // was set
+    unsigned char hours;
+    unsigned char minutes;
+    unsigned char state;
+    void enter()
     {
-      set_ = false;
-      prefs->runHours = hours;
-      prefs->runMinutes = minutes;
-      prefs.save();
+        Serial.println("enter");
+        hours = prefs->runHours;
+        minutes = prefs->runMinutes;
+        set_ = false;
+        state = 0;
     }
-  }
-  void paint(char *buf)
-  {
-    strcpy_P(buf, ps_RunTimePage);
-    fmtHrsMins(b2d(hours) * 3600 + b2d(minutes) * 60, &buf[10]);
-    if (!colonBlink)
+    void exit()
     {
-      char *ptr = buf + 10 + 3 * (edit - &hours);
-      ptr[0] = ptr[1] = ' ';
-    }
-    Serial.println(buf);
-  }
-  void action(unsigned char btn, Menu *m)
-  {
-    Serial.println(btn, HEX);
-    switch (btn)
-    {
-      case 0:
-        if (edit == &minutes)
+        Serial.println("exit");
+        if (set_)
         {
-          edit = &hours;
+            set_ = false;
+            prefs->runHours = hours;
+            prefs->runMinutes = minutes;
+            prefs.save();
+        }
+    }
+    void paint(char *buf)
+    {
+        strcpy_P(buf, ps_RunTimePage);
+        fmtHrsMins((unsigned long)b2d(hours) * 3600 + (unsigned long)b2d(minutes) * 60, &buf[10]);
+        if (!colonBlink)
+        {
+            char *ptr = buf + 10 + (state & 1) * 3;
+            ptr[0] = ptr[1] = ' ';
+        }
+    }
+    void action(unsigned char btn, Menu *m)
+    {
+        switch (state)
+        {
+            case 0:
+                action0(btn, m);
+                break;
+            case 1:
+                action1(btn, m);
+                break;
+            default:
+                BAD_STATE();
+                break;
+        }
+    }
+    void action0(unsigned char btn, Menu *m)
+    {
+        switch (btn)
+        {
+            case 0:
+                m->gotoPage(m->curPage->parent);
+                break;
+            case 1:
+                decrement(hours, 0x99);
+                break;
+            case 2:
+                increment(hours, 0x99);
+                break;
+            case 3:
+                state = 1;
+                break;
+            default:
+                BAD_BUTTON();
+                break;
+        }
+    }
+    void action1(unsigned char btn, Menu *m)
+    {
+        switch (btn)
+        {
+            case 0:
+                state = 0;
+                break;
+            case 1:
+                decrement(minutes, 0x59);
+                break;
+            case 2:
+                increment(minutes, 0x59);
+                break;
+            case 3:
+                set_ = true;
+                m->gotoPage(m->curPage->parent);
+                break;
+            default:
+                BAD_BUTTON();
+                break;
+        }
+    }
+    void increment(unsigned char &ch, unsigned char top)
+    {
+        if (9 == (ch & 0xf))
+        {
+            ch = ch + 7;
         }
         else
         {
-          m->gotoPage(m->curPage->parent);
+            ch = ch + 1;
         }
-        break;
-      case 1:
-        increment();
-        break;
-      case 2:
-        decrement();
-        break;
-      case 3:
-        if (edit == &hours)
+        if (ch > top)
         {
-          edit = &minutes;
+            ch = 0;
+        }
+    }
+    void decrement(unsigned char &ch, unsigned char top)
+    {
+        if (!(ch & 0xf))
+        {
+            ch = ch - 7;
         }
         else
         {
-          set_ = true;
-          m->gotoPage(m->curPage->parent);
+            ch = ch - 1;
         }
-        break;
+        if (ch > top)
+        {
+            ch = top;
+        }
     }
-  }
-  void increment()
-  {
-    *edit += 1;
-    if ((*edit & 0xf) > 9)
-    {
-      *edit = (*edit & 0xf0) + 0x10;
-      if (*edit > (edit == &hours) ? 0x99 : 0x59)
-      {
-        *edit = 0;
-      }
-    }
-  }
-  void decrement()
-  {
-    *edit -= 1;
-    if ((*edit & 0xf) > 9)
-    {
-      *edit = (*edit & 0xf0) - 0x10;
-      unsigned char top = (edit == &hours) ? 0x99 : 0x59;
-      if (*edit > top)
-      {
-        *edit = top;
-      }
-    }
-  }
 };
 SetRunTimeText srtText;
 
@@ -261,14 +308,22 @@ SetRunTimeText srtText;
 class SetRunTimeAction : public Action
 {
 public:
-  void paint(char *buf)
-  {
-    strcpy_P(buf, ps_AdjustControls);
-  }
-  void action(unsigned char btn, Menu *m)
-  {
-    srtText.action(btn, m);
-  }
+    void paint(char *buf)
+    {
+        strcpy_P(buf, ps_AdjustControls);
+    }
+    void action(unsigned char btn, Menu *m)
+    {
+        srtText.action(btn, m);
+    }
+    void enter()
+    {
+        srtText.enter();
+    }
+    void exit()
+    {
+        srtText.exit();
+    }
 };
 SetRunTimeAction srtAction;
 
@@ -278,20 +333,20 @@ Page setRunTimePage(&nm1, &srtText, &srtAction);
 //  Call menuExit() to go back to beginning
 void menuExit()
 {
-  menu.reset();
+    menu.reset();
 }
 
 //  During start-up, when detecting a user reset, wait to proceed
 void waitForAnyButtonPress()
 {
-  //  wait for key up, if down
-  while (anyKeyDown())
+    //  wait for key up, if down
+    while (anyKeyDown())
     delay(10);
-  //  wait for key down
-  while (!anyKeyDown())
+    //  wait for key down
+    while (!anyKeyDown())
     delay(10);
-  //  wait for key up
-  while (anyKeyDown())
+    //  wait for key up
+    while (anyKeyDown())
     delay(10);
 }
 
@@ -299,169 +354,179 @@ void waitForAnyButtonPress()
 //  Diagnostic blink sequence
 void blinkTimes(unsigned char times, unsigned int onTime, unsigned int offTime)
 {
-  while (true)
-  {
-    for (unsigned char ix = 0; ix != times; ++ix)
+    Serial.print("blinkTimes() ");
+    Serial.println(times, DEC);
+    while (true)
     {
-      digitalWrite(LED_PIN, HIGH);
-      delay(onTime);
-      digitalWrite(LED_PIN, LOW);
-      delay(offTime);
+        for (unsigned char ix = 0; ix != times; ++ix)
+        {
+            digitalWrite(LED_PIN, HIGH);
+            delay(onTime);
+            digitalWrite(LED_PIN, LOW);
+            delay(offTime);
+        }
+        delay(onTime+offTime+1000);
     }
-    delay(onTime+offTime+1000);
-  }
 }
 
 //  leftmost and rightmost button brings up user reset
 bool isResetKeyCombo()
 {
-  return readKey(A0) == BTN_DOWN && readKey(A3) == BTN_DOWN;
+    if (Serial.available())
+    {
+        if (Serial.read() == 'R')
+        {
+            return true;
+        }
+    }
+    return readKey(A0, 0) == BTN_DOWN && readKey(A3, 0) == BTN_DOWN;
 }
 
 
 void setup()
 {
-  //  Turn on indicator, turn off relay
-  pinMode(RELAY_PIN, OUTPUT);
-  digitalWrite(RELAY_PIN, LOW);
-  pinMode(LED_PIN, OUTPUT);
-  digitalWrite(LED_PIN, HIGH);
-  delay(10);
+    //  Turn on indicator, turn off relay
+    pinMode(RELAY_PIN, OUTPUT);
+    digitalWrite(RELAY_PIN, LOW);
+    pinMode(LED_PIN, OUTPUT);
+    digitalWrite(LED_PIN, HIGH);
+    delay(10);
 
-  //  Initialize serial port  
-  Serial.begin(9600); // for debugging
-  delay(10);
-  
-  //  Initialize settings; read from EEPROM  
-  new ((void *)prefs_) Settings<Prefs>();
-  prefs.load();
-  delay(10);
+    //  Initialize serial port  
+    Serial.begin(9600); // for debugging
+    delay(10);
 
-  //  Initialize LCD  
-  new ((void *)lcd_) LiquidCrystal(7, 8, 9, 10, 11, 12);
-  delay(10);
-  //  print the firmware version
-  lcd.begin(16, 2);  //  for display
-  lcd.clear();
-  Serial.println("Firmware " __TIME__ " " __DATE__);
-  lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print("F/w " __DATE__);
-  lcd.setCursor(3, 1);
-  lcd.print(__TIME__);
-
-  //  some time for user to read FW version  
-  delay(600);
-  //  at this point, Wire should be safe to start
-  Wire.begin();  //  for RTC
-  //  some time to get I2C time to stabilize (?)
-  delay(200);
-
-  //  Is there any reason to not just go to loop()?  
-  bool timeNotOk = timeIsInvalid();
-  bool eeNotOk = eepromInvalid();
-  bool isReset = isResetKeyCombo();
-  if (timeNotOk || eeNotOk || isReset)
-  {
-    if (timeNotOk) Serial.println("timeNotOk");
-    if (eeNotOk) Serial.println("eeNotOk");
-    if (isReset) Serial.println("isReset");
-
-    //  for debugging, to force a "bad eeprom" checksum, uncomment this
-    //  prefs.nukeStore();
-
-    // For some reason, reset the settings    
-    delay(1500);
-    lcd.clear();
-    paintProgmem(lcd, ps_ReplaceBattery, 0, 0);
-    paintProgmem(lcd, ps_AndSetClock, 0, 1);
-
-    prefs->startMday = 0;
-    prefs->startWday = 1;  //  by default, start running Sundays
-    prefs->startHour = 0x20;  //  by default, start at 8:15pm
-    prefs->startMinute = 0x15;  //  "
-    prefs->runHours = 0x04;  //  by default, run 4 hrs 30 minutes
-    prefs->runMinutes = 0x30;  //  "
-    
-    waitForAnyButtonPress();
-
-    lcd.clear();
-    paintProgmem(lcd, ps_PleaseWait, 0, 0);
-    DateTime dt = {
-      0x00, 0x42, 0x22, 4, 0x21, 0x09, 0x11
-    };
-    writeTime(dt);
-    prefs.save();
-    delay(500);
+    //  Initialize settings; read from EEPROM  
+    new ((void *)prefs_) Settings<Prefs>();
     prefs.load();
-    if (!prefs.lastOk())
+    delay(10);
+
+    //  Initialize LCD  
+    new ((void *)lcd_) LiquidCrystal(7, 8, 9, 10, 11, 12);
+    delay(10);
+    //  print the firmware version
+    lcd.begin(16, 2);  //  for display
+    lcd.clear();
+    Serial.println("Firmware " __TIME__ " " __DATE__);
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("F/w " __DATE__);
+    lcd.setCursor(3, 1);
+    lcd.print(__TIME__);
+
+    //  some time for user to read FW version  
+    delay(600);
+    //  at this point, Wire should be safe to start
+    Wire.begin();  //  for RTC
+    //  some time to get I2C time to stabilize (?)
+    delay(200);
+
+    //  Is there any reason to not just go to loop()?  
+    bool timeNotOk = timeIsInvalid();
+    bool eeNotOk = eepromInvalid();
+    bool isReset = isResetKeyCombo();
+    if (timeNotOk || eeNotOk || isReset)
     {
-      //  This probably means that the eeprom is dead
-      Serial.println("save and load prefs failed");
-      lcd.clear();
-      paintProgmem(lcd, ps_EEPROMDead, 0, 0);
-      blinkTimes(3, 200, 400);
+        if (timeNotOk) Serial.println("timeNotOk");
+        if (eeNotOk) Serial.println("eeNotOk");
+        if (isReset) Serial.println("isReset");
+
+        //  for debugging, to force a "bad eeprom" checksum, uncomment this
+        //  prefs.nukeStore();
+
+        // For some reason, reset the settings    
+        delay(1500);
+        lcd.clear();
+        paintProgmem(lcd, ps_ReplaceBattery, 0, 0);
+        paintProgmem(lcd, ps_AndSetClock, 0, 1);
+
+        prefs->startMday = 0;
+        prefs->startWday = 1;  //  by default, start running Sundays
+        prefs->startHour = 0x20;  //  by default, start at 8:15pm
+        prefs->startMinute = 0x15;  //  "
+        prefs->runHours = 0x04;  //  by default, run 4 hrs 30 minutes
+        prefs->runMinutes = 0x30;  //  "
+        
+        waitForAnyButtonPress();
+
+        lcd.clear();
+        paintProgmem(lcd, ps_PleaseWait, 0, 0);
+        DateTime dt = {
+            0x00, 0x42, 0x22, 4, 0x21, 0x09, 0x11
+        };
+        writeTime(dt);
+        prefs.save();
+        delay(500);
+        prefs.load();
+        if (!prefs.lastOk())
+        {
+            //  This probably means that the eeprom is dead
+            Serial.println("prefs failed");
+            lcd.clear();
+            paintProgmem(lcd, ps_EEPROMDead, 0, 0);
+            BAD_EEPROM();
+        }
     }
-  }
-  
-  //  OK, we're done!
-  lcd.clear();
-  menu.reset();
-  Serial.println("end setup()");
-  //  turn off the indicator light
-  digitalWrite(LED_PIN, LOW);
+
+    //  OK, we're done!
+    lcd.clear();
+    menu.reset();
+    Serial.println("end setup()");
+    //  turn off the indicator light
+    digitalWrite(LED_PIN, LOW);
 }
 
 //  Turn off the relay and light
 void turnOff()
 {
-  digitalWrite(LED_PIN, LOW);
-  digitalWrite(RELAY_PIN, LOW);
+    digitalWrite(LED_PIN, LOW);
+    digitalWrite(RELAY_PIN, LOW);
+    turnedOff = true;
 }
 
 //  Turn on the relay and light
 void turnOn()
 {
-  digitalWrite(LED_PIN, HIGH);
-  digitalWrite(RELAY_PIN, HIGH);
+    digitalWrite(LED_PIN, HIGH);
+    digitalWrite(RELAY_PIN, HIGH);
 }
 
 bool calculateTimerOn()
 {
-  //  I want to start, even if I missed the power-on date, for long
-  //  run times. This gets annoyingly fiddly.
-  //  Start by computing the interval it should be on, if it starts today.
-  //  Then, while the interval still includes the current time, check 
-  //  each previous day for whether the timer should be on.
-  //  This properly handles intervals that wrap across midnight, intervals 
-  //  longer than a day, and powering on in the middle of an on-interval.
+    //  I want to start, even if I missed the power-on date, for long
+    //  run times. This gets annoyingly fiddly.
+    //  Start by computing the interval it should be on, if it starts today.
+    //  Then, while the interval still includes the current time, check 
+    //  each previous day for whether the timer should be on.
+    //  This properly handles intervals that wrap across midnight, intervals 
+    //  longer than a day, and powering on in the middle of an on-interval.
 
-  unsigned long stime = yearStart(lastDateTime.year) +
+    unsigned long stime = yearStart(lastDateTime.year) +
     monthStart(lastDateTime.year, lastDateTime.month) +
     dayStart(lastDateTime.mday) +
     hourStart(prefs->startHour) +
     minuteStart(prefs->startMinute);
 
-  unsigned long etime = stime + prefsRunTime();
+    unsigned long etime = stime + prefsRunTime();
 
-  DateTime checkDateTime = lastDateTime;
+    DateTime checkDateTime = lastDateTime;
 
-  while (etime > lastSeconds)
-  {
-    //  stime is the start time, if it started on the day in checkDateTime
-    if (stime <= lastSeconds)
+    while (etime > lastSeconds)
     {
-      if ((checkDateTime.mday == prefs->startMday) || (checkDateTime.wday == prefs->startWday))
-      {
-        return etime;
-      }
-    }
+        //  stime is the start time, if it started on the day in checkDateTime
+        if (stime <= lastSeconds)
+        {
+            if ((checkDateTime.mday == prefs->startMday) || (checkDateTime.wday == prefs->startWday))
+            {
+                return etime;
+            }
+        }
 
-    stime -= 86400;
-    etime -= 86400;
-    toTime(stime, checkDateTime);
-  }
-  return 0;
+        stime -= 86400;
+        etime -= 86400;
+        toTime(stime, checkDateTime);
+    }
+    return 0;
 }
 
 
@@ -473,89 +538,99 @@ bool cb;
 //  from within loop, handle timer on/off events
 void updatePeriodical()
 {
-  lastMillis = m;
-  readTime(lastDateTime);
-  unsigned long ls = fromTime(lastDateTime);
-  if (ls != lastSeconds)
-  {
-    lastSeconds = ls;
-    changed = true;
-  }
-  unsigned long etime = calculateTimerOn();
-  unsigned long otime = onUntilTime;
-  if (etime > otime)
-  {
-    Serial.print("Detect ON: "); Serial.println(etime);
-    otime = etime;
-  }
-  //  todo: if I forced off, don't turn on just yet
-  if (otime <= lastSeconds)
-  {
-    if (otime != 0)
+    lastMillis = m;
+    readTime(lastDateTime);
+    unsigned long ls = fromTime(lastDateTime);
+    if (ls != lastSeconds)
     {
-      Serial.print("Detect OFF: "); Serial.println(onUntilTime);
-      otime = 0;
+        lastSeconds = ls;
+        changed = true;
     }
-  }
-  if (otime != onUntilTime)
-  {
-    Serial.print("Change onUntilTime to "); Serial.print(otime); Serial.print(" from "); Serial.println(onUntilTime);
-    onUntilTime = otime;
-    changed = true;
-    if (otime == 0)
+    unsigned long etime = calculateTimerOn();
+    unsigned long otime = onUntilTime;
+    if (etime > otime)
     {
-      turnOff();
+        Serial.print("ON: "); Serial.println(etime);
+        otime = etime;
+    }
+    //  todo: if I forced off, don't turn on just yet
+    if (otime <= lastSeconds)
+    {
+        if (otime != 0)
+        {
+            Serial.print("OFF: "); Serial.println(onUntilTime);
+            otime = 0;
+        }
+    }
+    if (otime != onUntilTime)
+    {
+        Serial.print("onUntilTime "); Serial.print(otime); Serial.print(" from "); Serial.println(onUntilTime);
+        onUntilTime = otime;
+        changed = true;
+        if (otime == 0)
+        {
+            turnOff();
+        }
+        else if (!turnedOff)
+        {
+            turnOn();
+        }  
     }
     else
     {
-      turnOn();
-    }  
-  }
+        turnedOff = false;
+    }
 }
 
 //  from within loop(), handle menu display and interaction
 void updateMenu()
 {
-  //  If anything changed, invalidate the display
-  if (changed)
-  {
-    menu.invalidate();
-  }
+    //  If anything changed, invalidate the display
+    if (changed)
+    {
+        menu.invalidate();
+    }
 
-  //  tell the menu about our button state  
-  menu.button(0, readKey(A0));
-  menu.button(1, readKey(A1));
-  menu.button(2, readKey(A2));
-  menu.button(3, readKey(A3));
-  
-  //  and update the UI, run any requested button actions
-  menu.step();
+    char ch = 0;
+    if (Serial.available())
+    {
+        ch = Serial.read();
+        Serial.print(ch);
+    }
+    //  tell the menu about our button state  
+    menu.button(0, readKey(A0, ch));
+    menu.button(1, readKey(A1, ch));
+    menu.button(2, readKey(A2, ch));
+    menu.button(3, readKey(A3, ch));
+
+    //  and update the UI, run any requested button actions
+    menu.step();
 }
 
 void loop()
 {
-  //  Say, kids, what time is it?
-  m = millis();
-  changed = false;  //  did I change anything on the display?
+    //  Say, kids, what time is it?
+    m = millis();
+    changed = false;  //  did I change anything on the display?
 
-  //  colon blinkage
-  cb = ((m % 1000) < 800);
-  if (cb != colonBlink)
-  {
-     colonBlink = cb;
-     changed = true;
-  }
+    //  colon blinkage
+    cb = ((m % 1000) < 800);
+    if (cb != colonBlink)
+    {
+        colonBlink = cb;
+        changed = true;
+    }
 
-  //  check for timers and time/date changing, every so often
-  if ((long)m - (long)lastMillis >= 100)
-  {
-    updatePeriodical();
-  }
-  
-  //  don't run out of control (?)
-  delay(5);
+    //  check for timers and time/date changing, every so often
+    if ((long)m - (long)lastMillis >= 100)
+    {
+        updatePeriodical();
+    }
 
-  updateMenu();
+    //  don't run out of control (?)
+    delay(5);
+
+    updateMenu();
 }
 
 
