@@ -1,4 +1,4 @@
-
+    
 #include <LiquidCrystal.h>
 #include <Wire.h>
 #include <DateTime.h>
@@ -32,10 +32,14 @@ PROGMEM char ps_ChargingMenu[] =    "Menu Stop  00:00";
 PROGMEM char ps_SetRunTime[] =      "1. Set Run Time";
 PROGMEM char ps_SetDayOfMonth[] =   "2. Day of Month";
 PROGMEM char ps_SetDayOfWeek[] =    "3. Day of Week";
-PROGMEM char ps_SetClock[] =        "4. Set Date/Time";
+PROGMEM char ps_SetTime[] =         "4. Set Time";
+PROGMEM char ps_SetDate[] =         "5. Set Date";
 PROGMEM char ps_RunTimePage[] =     "Run Time: HH:MM";
 PROGMEM char ps_AdjustControls[] =  "Back  -  +  Next";
 PROGMEM char ps_EEPROMDead[] =      "Timer is broken.";
+PROGMEM char ps_DayOfWeekPage[] =   "Run on day: Xxx";
+
+PROGMEM char ps_DaysOfWeek[] =  "---\0Sun\0Mon\0Tue\0Wed\0Thu\0Fri\0Sat";
 
 //  globals
 DateTime lastDateTime;
@@ -43,7 +47,7 @@ unsigned long lastSeconds;
 unsigned long onUntilTime;
 unsigned long lastMillis;
 bool colonBlink;
-bool turnedOff;
+bool wasCancelled;
 
 //  EEPROM/settings
 struct Prefs
@@ -153,7 +157,8 @@ public:
         }
         else if (onUntilTime != 0 && btn == 1)
         {
-            //  cancel the active charge
+            //  cancel the active on-time
+            wasCancelled = true;
             onUntilTime = 0;
             turnOff();
         }
@@ -173,7 +178,40 @@ Page first(&menu, &mainText, &mainAction);
 NavPage nm1(&first, ps_SetRunTime);
 NavPage nm2(&first, ps_SetDayOfMonth);
 NavPage nm3(&first, ps_SetDayOfWeek);
-NavPage nm4(&first, ps_SetClock);
+NavPage nm4(&first, ps_SetTime);
+NavPage nm5(&first, ps_SetDate);
+
+static void increment(unsigned char &ch, unsigned char top)
+{
+    if (9 == (ch & 0xf))
+    {
+        ch = ch + 7;
+    }
+    else
+    {
+        ch = ch + 1;
+    }
+    if (ch > top)
+    {
+        ch = 0;
+    }
+}
+
+static void decrement(unsigned char &ch, unsigned char top)
+{
+    if (!(ch & 0xf))
+    {
+        ch = ch - 7;
+    }
+    else
+    {
+        ch = ch - 1;
+    }
+    if (ch > top)
+    {
+        ch = top;
+    }
+}
 
 //  RunTime menu
 class SetRunTimeText : public Paint
@@ -186,7 +224,6 @@ public:
     unsigned char state;
     void enter()
     {
-        Serial.println("enter");
         hours = prefs->runHours;
         minutes = prefs->runMinutes;
         set_ = false;
@@ -194,7 +231,6 @@ public:
     }
     void exit()
     {
-        Serial.println("exit");
         if (set_)
         {
             set_ = false;
@@ -271,36 +307,6 @@ public:
                 break;
         }
     }
-    void increment(unsigned char &ch, unsigned char top)
-    {
-        if (9 == (ch & 0xf))
-        {
-            ch = ch + 7;
-        }
-        else
-        {
-            ch = ch + 1;
-        }
-        if (ch > top)
-        {
-            ch = 0;
-        }
-    }
-    void decrement(unsigned char &ch, unsigned char top)
-    {
-        if (!(ch & 0xf))
-        {
-            ch = ch - 7;
-        }
-        else
-        {
-            ch = ch - 1;
-        }
-        if (ch > top)
-        {
-            ch = top;
-        }
-    }
 };
 SetRunTimeText srtText;
 
@@ -328,6 +334,88 @@ public:
 SetRunTimeAction srtAction;
 
 Page setRunTimePage(&nm1, &srtText, &srtAction);
+
+
+class SetDayOfWeekText : public Paint
+{
+public:
+    SetDayOfWeekText() {}
+    bool set_; // was set
+    unsigned char dayOfWeek;
+    void enter()
+    {
+        dayOfWeek = prefs->startWday;
+        set_ = false;
+    }
+    void exit()
+    {
+        Serial.println("exit");
+        if (set_)
+        {
+            set_ = false;
+            prefs->startWday = dayOfWeek;
+            prefs.save();
+        }
+    }
+    void paint(char *buf)
+    {
+        strcpy_P(buf, ps_DayOfWeekPage);
+        if (!colonBlink)
+        {
+            buf[12] = 0;
+        }
+        else
+        {
+            strcpy_P(buf + 12, &ps_DaysOfWeek[4 * dayOfWeek]);
+        }
+    }
+    void action(unsigned char btn, Menu *m)
+    {
+        switch (btn)
+        {
+            case 3:
+                set_ = true;
+            case 0:
+                m->gotoPage(m->curPage->parent);
+                break;
+            case 1:
+                decrement(dayOfWeek, 0x07);
+                break;
+            case 2:
+                increment(dayOfWeek, 0x07);
+                break;
+            default:
+                BAD_BUTTON();
+                break;
+        }
+    }
+};
+SetDayOfWeekText sdowText;
+
+class SetDayOfWeekAction : public Action
+{
+public:
+    void paint(char *buf)
+    {
+        strcpy_P(buf, ps_AdjustControls);
+    }
+    void action(unsigned char btn, Menu *m)
+    {
+        sdowText.action(btn, m);
+    }
+    void enter()
+    {
+        sdowText.enter();
+    }
+    void exit()
+    {
+        sdowText.exit();
+    }
+};
+SetDayOfWeekAction sdowAction;
+
+Page setDayOfWeekPage(&nm3, &sdowText, &sdowAction);
+
 
 
 //  Call menuExit() to go back to beginning
@@ -442,7 +530,7 @@ void setup()
 
         prefs->startMday = 0;
         prefs->startWday = 1;  //  by default, start running Sundays
-        prefs->startHour = 0x20;  //  by default, start at 8:15pm
+        prefs->startHour = 0x20;  //  by default, start at some time
         prefs->startMinute = 0x15;  //  "
         prefs->runHours = 0x04;  //  by default, run 4 hrs 30 minutes
         prefs->runMinutes = 0x30;  //  "
@@ -452,7 +540,7 @@ void setup()
         lcd.clear();
         paintProgmem(lcd, ps_PleaseWait, 0, 0);
         DateTime dt = {
-            0x00, 0x42, 0x22, 4, 0x21, 0x09, 0x11
+            0x00, 0x35, 0x22, 2, 0x10, 0x10, 0x11
         };
         writeTime(dt);
         prefs.save();
@@ -481,7 +569,6 @@ void turnOff()
 {
     digitalWrite(LED_PIN, LOW);
     digitalWrite(RELAY_PIN, LOW);
-    turnedOff = true;
 }
 
 //  Turn on the relay and light
@@ -491,7 +578,7 @@ void turnOn()
     digitalWrite(RELAY_PIN, HIGH);
 }
 
-bool calculateTimerOn()
+unsigned long calculateTimerEndTime()
 {
     //  I want to start, even if I missed the power-on date, for long
     //  run times. This gets annoyingly fiddly.
@@ -501,13 +588,13 @@ bool calculateTimerOn()
     //  This properly handles intervals that wrap across midnight, intervals 
     //  longer than a day, and powering on in the middle of an on-interval.
 
-    unsigned long stime = yearStart(lastDateTime.year) +
+    unsigned long stime = yearStart(lastDateTime.year) +     //    start time today
     monthStart(lastDateTime.year, lastDateTime.month) +
     dayStart(lastDateTime.mday) +
     hourStart(prefs->startHour) +
     minuteStart(prefs->startMinute);
 
-    unsigned long etime = stime + prefsRunTime();
+    unsigned long etime = stime + prefsRunTime();            //    end time
 
     DateTime checkDateTime = lastDateTime;
 
@@ -516,6 +603,8 @@ bool calculateTimerOn()
         //  stime is the start time, if it started on the day in checkDateTime
         if (stime <= lastSeconds)
         {
+            //  ok, the current time is within the interval -- 
+            //  return running if the given start day matches the specification
             if ((checkDateTime.mday == prefs->startMday) || (checkDateTime.wday == prefs->startWday))
             {
                 return etime;
@@ -526,6 +615,7 @@ bool calculateTimerOn()
         etime -= 86400;
         toTime(stime, checkDateTime);
     }
+    //    return 0 if there's no need to be on
     return 0;
 }
 
@@ -533,7 +623,8 @@ bool calculateTimerOn()
 //  globals shared within the context of loop
 unsigned long m;
 bool changed;
-bool cb;
+bool colonIsBlinked;
+char buf[70];
 
 //  from within loop, handle timer on/off events
 void updatePeriodical()
@@ -546,39 +637,46 @@ void updatePeriodical()
         lastSeconds = ls;
         changed = true;
     }
-    unsigned long etime = calculateTimerOn();
+    unsigned long etime = calculateTimerEndTime();
+    //    keep running if already on
     unsigned long otime = onUntilTime;
     if (etime > otime)
     {
-        Serial.print("ON: "); Serial.println(etime);
+        //    should be on -- so set new on-until-time to end time
         otime = etime;
     }
-    //  todo: if I forced off, don't turn on just yet
     if (otime <= lastSeconds)
     {
-        if (otime != 0)
+        if (etime != 0)
         {
-            Serial.print("OFF: "); Serial.println(onUntilTime);
-            otime = 0;
+            //    shouldn't be on and off at the same time!
+            Serial.print("On and Off? etime=");
+            Serial.print(etime);
+            Serial.print("; otime=");
+            Serial.println(otime);
         }
+        //    should be off -- so make sure we signal off-ness
+        otime = 0;
+        wasCancelled = false;
     }
     if (otime != onUntilTime)
     {
-        Serial.print("onUntilTime "); Serial.print(otime); Serial.print(" from "); Serial.println(onUntilTime);
-        onUntilTime = otime;
-        changed = true;
-        if (otime == 0)
+        //    switched state
+        if (otime == 0 || !wasCancelled)
         {
-            turnOff();
-        }
-        else if (!turnedOff)
-        {
-            turnOn();
+            Serial.print("onUntilTime to "); Serial.print(otime); Serial.print(" from "); Serial.println(onUntilTime);
+            onUntilTime = otime;
+            changed = true;
+            if (otime == 0)
+            {
+                turnOff();
+            }
+            else
+            {
+                //    if not manually turned off, turn on!
+                turnOn();
+            }
         }  
-    }
-    else
-    {
-        turnedOff = false;
     }
 }
 
@@ -614,10 +712,10 @@ void loop()
     changed = false;  //  did I change anything on the display?
 
     //  colon blinkage
-    cb = ((m % 1000) < 800);
-    if (cb != colonBlink)
+    colonIsBlinked = ((m % 1000) < 800);
+    if (colonIsBlinked != colonBlink)
     {
-        colonBlink = cb;
+        colonBlink = colonIsBlinked;
         changed = true;
     }
 
@@ -626,9 +724,6 @@ void loop()
     {
         updatePeriodical();
     }
-
-    //  don't run out of control (?)
-    delay(5);
 
     updateMenu();
 }
