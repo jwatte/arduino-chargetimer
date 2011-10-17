@@ -29,14 +29,16 @@ PROGMEM char ps_PleaseWait[] =      "Please Wait...";
 PROGMEM char ps_MainPage[] =        "%a %b %d %H:%M";
 PROGMEM char ps_Menu[] =            "Menu          On";
 PROGMEM char ps_ChargingMenu[] =    "Menu Stop  00:00";
-PROGMEM char ps_SetRunTime[] =      "1. Set Run Time";
-PROGMEM char ps_SetDayOfMonth[] =   "2. Day of Month";
-PROGMEM char ps_SetDayOfWeek[] =    "3. Day of Week";
-PROGMEM char ps_SetTime[] =         "4. Set Time";
-PROGMEM char ps_SetDate[] =         "5. Set Date";
+PROGMEM char ps_SetRunTime[] =      "1. Run Duration";
+PROGMEM char ps_SetDayOfMonth[] =   "2. Run Month-day";
+PROGMEM char ps_SetDayOfWeek[] =    "3. Run Weekday";
+PROGMEM char ps_SetRunAtTime[] =    "4. Run at Time";
+PROGMEM char ps_SetTime[] =         "5. Set Time";
+PROGMEM char ps_SetDate[] =         "6. Set Date";
 PROGMEM char ps_RunTimePage[] =     "Run Time: HH:MM";
 PROGMEM char ps_AdjustControls[] =  "Back  -  +  Next";
 PROGMEM char ps_EEPROMDead[] =      "Timer is broken.";
+PROGMEM char ps_DayOfMonthPage[] =  "Run on date: Xx";
 PROGMEM char ps_DayOfWeekPage[] =   "Run on day: Xxx";
 
 PROGMEM char ps_DaysOfWeek[] =  "---\0Sun\0Mon\0Tue\0Wed\0Thu\0Fri\0Sat";
@@ -178,242 +180,23 @@ Page first(&menu, &mainText, &mainAction);
 NavPage nm1(&first, ps_SetRunTime);
 NavPage nm2(&first, ps_SetDayOfMonth);
 NavPage nm3(&first, ps_SetDayOfWeek);
-NavPage nm4(&first, ps_SetTime);
-NavPage nm5(&first, ps_SetDate);
+NavPage nm4(&first, ps_SetRunAtTime);
+NavPage nm5(&first, ps_SetTime);
+NavPage nm6(&first, ps_SetDate);
 
-static void increment(unsigned char &ch, unsigned char top)
-{
-    if (9 == (ch & 0xf))
-    {
-        ch = ch + 7;
-    }
-    else
-    {
-        ch = ch + 1;
-    }
-    if (ch > top)
-    {
-        ch = 0;
-    }
-}
-
-static void decrement(unsigned char &ch, unsigned char top)
-{
-    if (!(ch & 0xf))
-    {
-        ch = ch - 7;
-    }
-    else
-    {
-        ch = ch - 1;
-    }
-    if (ch > top)
-    {
-        ch = top;
-    }
-}
-
-//  RunTime menu
-class SetRunTimeText : public Paint
-{
-public:
-    SetRunTimeText() {}
-    bool set_; // was set
-    unsigned char hours;
-    unsigned char minutes;
-    unsigned char state;
-    void enter()
-    {
-        hours = prefs->runHours;
-        minutes = prefs->runMinutes;
-        set_ = false;
-        state = 0;
-    }
-    void exit()
-    {
-        if (set_)
-        {
-            set_ = false;
-            prefs->runHours = hours;
-            prefs->runMinutes = minutes;
-            prefs.save();
-        }
-    }
-    void paint(char *buf)
-    {
-        strcpy_P(buf, ps_RunTimePage);
-        fmtHrsMins((unsigned long)b2d(hours) * 3600 + (unsigned long)b2d(minutes) * 60, &buf[10]);
-        if (!colonBlink)
-        {
-            char *ptr = buf + 10 + (state & 1) * 3;
-            ptr[0] = ptr[1] = ' ';
-        }
-    }
-    void action(unsigned char btn, Menu *m)
-    {
-        switch (state)
-        {
-            case 0:
-                action0(btn, m);
-                break;
-            case 1:
-                action1(btn, m);
-                break;
-            default:
-                BAD_STATE();
-                break;
-        }
-    }
-    void action0(unsigned char btn, Menu *m)
-    {
-        switch (btn)
-        {
-            case 0:
-                m->gotoPage(m->curPage->parent);
-                break;
-            case 1:
-                decrement(hours, 0x99);
-                break;
-            case 2:
-                increment(hours, 0x99);
-                break;
-            case 3:
-                state = 1;
-                break;
-            default:
-                BAD_BUTTON();
-                break;
-        }
-    }
-    void action1(unsigned char btn, Menu *m)
-    {
-        switch (btn)
-        {
-            case 0:
-                state = 0;
-                break;
-            case 1:
-                decrement(minutes, 0x59);
-                break;
-            case 2:
-                increment(minutes, 0x59);
-                break;
-            case 3:
-                set_ = true;
-                m->gotoPage(m->curPage->parent);
-                break;
-            default:
-                BAD_BUTTON();
-                break;
-        }
-    }
-};
+#include <SetRunTime.h>
 SetRunTimeText srtText;
-
-//  RunTime adjusting
-class SetRunTimeAction : public Action
-{
-public:
-    void paint(char *buf)
-    {
-        strcpy_P(buf, ps_AdjustControls);
-    }
-    void action(unsigned char btn, Menu *m)
-    {
-        srtText.action(btn, m);
-    }
-    void enter()
-    {
-        srtText.enter();
-    }
-    void exit()
-    {
-        srtText.exit();
-    }
-};
 SetRunTimeAction srtAction;
-
 Page setRunTimePage(&nm1, &srtText, &srtAction);
 
+#include <SetDayOfMonth.h>
+SetDayOfMonthText sdomText;
+SetDayOfMonthAction sdomAction;
+Page setDayOfMonthPage(&nm2, &sdomText, &sdomAction);
 
-class SetDayOfWeekText : public Paint
-{
-public:
-    SetDayOfWeekText() {}
-    bool set_; // was set
-    unsigned char dayOfWeek;
-    void enter()
-    {
-        dayOfWeek = prefs->startWday;
-        set_ = false;
-    }
-    void exit()
-    {
-        Serial.println("exit");
-        if (set_)
-        {
-            set_ = false;
-            prefs->startWday = dayOfWeek;
-            prefs.save();
-        }
-    }
-    void paint(char *buf)
-    {
-        strcpy_P(buf, ps_DayOfWeekPage);
-        if (!colonBlink)
-        {
-            buf[12] = 0;
-        }
-        else
-        {
-            strcpy_P(buf + 12, &ps_DaysOfWeek[4 * dayOfWeek]);
-        }
-    }
-    void action(unsigned char btn, Menu *m)
-    {
-        switch (btn)
-        {
-            case 3:
-                set_ = true;
-            case 0:
-                m->gotoPage(m->curPage->parent);
-                break;
-            case 1:
-                decrement(dayOfWeek, 0x07);
-                break;
-            case 2:
-                increment(dayOfWeek, 0x07);
-                break;
-            default:
-                BAD_BUTTON();
-                break;
-        }
-    }
-};
+#include <SetDayOfWeek.h>
 SetDayOfWeekText sdowText;
-
-class SetDayOfWeekAction : public Action
-{
-public:
-    void paint(char *buf)
-    {
-        strcpy_P(buf, ps_AdjustControls);
-    }
-    void action(unsigned char btn, Menu *m)
-    {
-        sdowText.action(btn, m);
-    }
-    void enter()
-    {
-        sdowText.enter();
-    }
-    void exit()
-    {
-        sdowText.exit();
-    }
-};
 SetDayOfWeekAction sdowAction;
-
 Page setDayOfWeekPage(&nm3, &sdowText, &sdowAction);
 
 
