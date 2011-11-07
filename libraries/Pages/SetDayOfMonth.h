@@ -1,6 +1,7 @@
 #include "inlines.h"
+#include "SetGenericAction.h"
 
-class SetDayOfMonthText : public Paint
+class SetDayOfMonthText : public GenericText
 {
 public:
     SetDayOfMonthText() {}
@@ -68,25 +69,4 @@ public:
         }
     }
 };
-extern SetDayOfMonthText sdomText;
 
-class SetDayOfMonthAction : public Action
-{
-public:
-    void paint(char *buf)
-    {
-        strcpy_P(buf, ps_AdjustControls);
-    }
-    void action(unsigned char btn, Menu *m)
-    {
-        sdomText.action(btn, m);
-    }
-    void enter()
-    {
-        sdomText.enter();
-    }
-    void exit()
-    {
-        sdomText.exit();
-    }
-};

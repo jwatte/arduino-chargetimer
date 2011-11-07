@@ -1,19 +1,22 @@
 #include "inlines.h"
 #include "SetGenericAction.h"
+#include <DateTime.h>
 
-//  RunTime menu
-class SetRunTimeText : public GenericText
+extern DateTime lastDateTime;
+
+//  Time menu
+class SetTimeText : public GenericText
 {
 public:
-    SetRunTimeText() {}
+    SetTimeText() {}
     bool set_; // was set
     unsigned char hours;
     unsigned char minutes;
     unsigned char state;
     void enter()
     {
-        hours = prefs->runHours;
-        minutes = prefs->runMinutes;
+        hours = lastDateTime.hour;
+        minutes = lastDateTime.minute;
         set_ = false;
         state = 0;
     }
@@ -22,18 +25,19 @@ public:
         if (set_)
         {
             set_ = false;
-            prefs->runHours = hours;
-            prefs->runMinutes = minutes;
-            prefs.save();
+            lastDateTime.hour = hours;
+            lastDateTime.minute = minutes;
+            lastDateTime.second = 0;
+            writeTime(lastDateTime);
         }
     }
     void paint(char *buf)
     {
-        strcpy_P(buf, ps_RunTimePage);
-        fmtHrsMins((unsigned long)b2d(hours) * 3600 + (unsigned long)b2d(minutes) * 60, &buf[10]);
+        strcpy_P(buf, ps_TimePage);
+        fmtHrsMins((unsigned long)b2d(hours) * 3600 + (unsigned long)b2d(minutes) * 60, &buf[9]);
         if (!colonBlink)
         {
-            char *ptr = buf + 10 + (state & 1) * 3;
+            char *ptr = buf + 9 + (state & 1) * 3;
             ptr[0] = ptr[1] = ' ';
         }
     }
@@ -60,10 +64,10 @@ public:
                 m->gotoPage(m->curPage->parent);
                 break;
             case 1:
-                decrement(hours, 0x99);
+                decrement(hours, 0x24);
                 break;
             case 2:
-                increment(hours, 0x99);
+                increment(hours, 0x24);
                 break;
             case 3:
                 state = 1;

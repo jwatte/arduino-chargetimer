@@ -40,13 +40,14 @@ PROGMEM char ps_AdjustControls[] =  "Back  -  +  Next";
 PROGMEM char ps_EEPROMDead[] =      "Timer is broken.";
 PROGMEM char ps_DayOfMonthPage[] =  "Run on date: Xx";
 PROGMEM char ps_DayOfWeekPage[] =   "Run on day: Xxx";
+PROGMEM char ps_TimePage[] =        "  Time:  HH:MM  ";
 
 PROGMEM char ps_DaysOfWeek[] =  "---\0Sun\0Mon\0Tue\0Wed\0Thu\0Fri\0Sat";
 
 //  globals
 DateTime lastDateTime;
 unsigned long lastSeconds;
-unsigned long onUntilTime;
+    unsigned long onUntilTime;
 unsigned long lastMillis;
 bool colonBlink;
 bool wasCancelled;
@@ -186,19 +187,23 @@ NavPage nm6(&first, ps_SetDate);
 
 #include <SetRunTime.h>
 SetRunTimeText srtText;
-SetRunTimeAction srtAction;
+SetGenericAction srtAction(&srtText);
 Page setRunTimePage(&nm1, &srtText, &srtAction);
 
 #include <SetDayOfMonth.h>
 SetDayOfMonthText sdomText;
-SetDayOfMonthAction sdomAction;
+SetGenericAction sdomAction(&sdomText);
 Page setDayOfMonthPage(&nm2, &sdomText, &sdomAction);
 
 #include <SetDayOfWeek.h>
 SetDayOfWeekText sdowText;
-SetDayOfWeekAction sdowAction;
+SetGenericAction sdowAction(&sdowText);
 Page setDayOfWeekPage(&nm3, &sdowText, &sdowAction);
 
+#include <SetTime.h>
+SetTimeText stimeText;
+SetGenericAction stimeAction(&stimeText);
+Page setTimePage(&nm5, &stimeText, &stimeAction);
 
 
 //  Call menuExit() to go back to beginning

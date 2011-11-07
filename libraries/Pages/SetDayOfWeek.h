@@ -1,6 +1,7 @@
 #include "inlines.h"
+#include "SetGenericAction.h"
 
-class SetDayOfWeekText : public Paint
+class SetDayOfWeekText : public GenericText
 {
 public:
     SetDayOfWeekText() {}
@@ -52,27 +53,5 @@ public:
                 BAD_BUTTON();
                 break;
         }
-    }
-};
-extern SetDayOfWeekText sdowText;
-
-class SetDayOfWeekAction : public Action
-{
-public:
-    void paint(char *buf)
-    {
-        strcpy_P(buf, ps_AdjustControls);
-    }
-    void action(unsigned char btn, Menu *m)
-    {
-        sdowText.action(btn, m);
-    }
-    void enter()
-    {
-        sdowText.enter();
-    }
-    void exit()
-    {
-        sdowText.exit();
     }
 };
