@@ -328,6 +328,17 @@ char const *monthStr(unsigned char bcdMonth)
     return mName[ix];
 }
 
+unsigned char bcdDaysInMonth(unsigned char bcdYear, unsigned char bcdMonth)
+{
+    if (bcdMonth >= 0x12 || bcdMonth <= 0x1)
+    {
+        return 0x31;
+    }
+    return d2b(
+        (monthStart(bcdYear, d2b(b2d(bcdMonth) + 1)) - monthStart(bcdYear, bcdMonth))
+        / SECONDS_PER_DAY);
+}
+
 void fmtHrsMins(unsigned long secs, char *buf)
 {
     secs += 59;
@@ -350,3 +361,4 @@ void fmtHrsMins(unsigned long secs, char *buf)
     mins -= c * 10;
     buf[4] = '0' + mins;
 }
+

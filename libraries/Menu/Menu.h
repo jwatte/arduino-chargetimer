@@ -54,8 +54,8 @@ protected:
 
 enum ButtonState
 {
-    BTN_UP = 1,
-    BTN_DOWN = 0
+    BTN_INACTIVE = 0,
+    BTN_ACTIVE = 1
 };
 
 

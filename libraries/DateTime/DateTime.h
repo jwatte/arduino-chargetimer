@@ -39,6 +39,7 @@ unsigned long minuteStart(unsigned char bcdMinute);
 
 char const *weekdayStr(unsigned char bcdWday);
 char const *monthStr(unsigned char bcdMonth);
+unsigned char bcdDaysInMonth(unsigned char bcdYear, unsigned char bcdMonth);
 
 //buf needs 5 chars; will not be zero terminated
 void fmtHrsMins(unsigned long secs, char *buf);

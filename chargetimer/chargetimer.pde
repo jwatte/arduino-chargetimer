@@ -7,11 +7,14 @@
 
 //  constants
 #define LED_PIN 13
-#define RELAY_PIN 4
+#define RELAY_PIN 12
+
+#define SOLID_BLINK_TIME 800
 
 #define BAD_BUTTON() \
     blinkTimes(2, 200, 400)
-#define BAD_STATE() \
+
+    #define BAD_STATE() \
     blinkTimes(2, 400, 200)
 #define BAD_EEPROM() \
     blinkTimes(3, 200, 400)
@@ -41,16 +44,18 @@ PROGMEM char ps_EEPROMDead[] =      "Timer is broken.";
 PROGMEM char ps_DayOfMonthPage[] =  "Run on date: Xx";
 PROGMEM char ps_DayOfWeekPage[] =   "Run on day: Xxx";
 PROGMEM char ps_TimePage[] =        "  Time:  HH:MM  ";
+PROGMEM char ps_DatePage[] =        "Date: 20YY-MM-DD";
 
 PROGMEM char ps_DaysOfWeek[] =  "---\0Sun\0Mon\0Tue\0Wed\0Thu\0Fri\0Sat";
 
 //  globals
 DateTime lastDateTime;
 unsigned long lastSeconds;
-    unsigned long onUntilTime;
+unsigned long onUntilTime;
 unsigned long lastMillis;
 bool colonBlink;
 bool wasCancelled;
+unsigned long loopMillis;
 
 //  EEPROM/settings
 struct Prefs
@@ -89,9 +94,13 @@ unsigned int readKey(unsigned int key, char serialKey)
 {
     //    allow keyboard-driven debugging (ultimate in laziness!)
     if (serialKey == '1' + key - A0) {
-        return BTN_DOWN;
+        Serial.println("CHAR");
+        return BTN_ACTIVE;
     }
-    return analogRead(key) > 100 ? BTN_UP : BTN_DOWN;
+    if (analogRead(key) > 500) {
+        return BTN_ACTIVE;
+    }
+    return BTN_INACTIVE;
 }
 
 //  Is any button pressed? (for start-up UI)
@@ -102,10 +111,10 @@ bool anyKeyDown()
     {
         ch = Serial.read();
     }
-    return readKey(A0, ch) == BTN_DOWN || 
-        readKey(A1, ch) == BTN_DOWN || 
-        readKey(A2, ch) == BTN_DOWN || 
-        readKey(A3, ch) == BTN_DOWN;
+    return readKey(A0, ch) == BTN_ACTIVE || 
+        readKey(A1, ch) == BTN_ACTIVE || 
+        readKey(A2, ch) == BTN_ACTIVE || 
+        readKey(A3, ch) == BTN_ACTIVE;
 }
 
 //  Convert BCD to decimal
@@ -200,10 +209,20 @@ SetDayOfWeekText sdowText;
 SetGenericAction sdowAction(&sdowText);
 Page setDayOfWeekPage(&nm3, &sdowText, &sdowAction);
 
+#include <SetRunAtTime.h>
+SetRunAtTimeText srunAtTimeText;
+SetGenericAction srunAtTimeAction(&srunAtTimeText);
+Page setRunAtTimePage(&nm4, &srunAtTimeText, &srunAtTimeAction);
+
 #include <SetTime.h>
 SetTimeText stimeText;
 SetGenericAction stimeAction(&stimeText);
 Page setTimePage(&nm5, &stimeText, &stimeAction);
+
+#include <SetDate.h>
+SetDateText sdateText;
+SetGenericAction sdateAction(&sdateText);
+Page setDatePage(&nm6, &sdateText, &sdateAction);
 
 
 //  Call menuExit() to go back to beginning
@@ -255,7 +274,7 @@ bool isResetKeyCombo()
             return true;
         }
     }
-    return readKey(A0, 0) == BTN_DOWN && readKey(A3, 0) == BTN_DOWN;
+    return readKey(A0, 0) == BTN_ACTIVE && readKey(A3, 0) == BTN_ACTIVE;
 }
 
 
@@ -278,7 +297,7 @@ void setup()
     delay(10);
 
     //  Initialize LCD  
-    new ((void *)lcd_) LiquidCrystal(7, 8, 9, 10, 11, 12);
+    new ((void *)lcd_) LiquidCrystal(2, 3, 4, 5, 6, 7);
     delay(10);
     //  print the firmware version
     lcd.begin(16, 2);  //  for display
@@ -409,7 +428,6 @@ unsigned long calculateTimerEndTime()
 
 
 //  globals shared within the context of loop
-unsigned long m;
 bool changed;
 bool colonIsBlinked;
 char buf[70];
@@ -417,7 +435,7 @@ char buf[70];
 //  from within loop, handle timer on/off events
 void updatePeriodical()
 {
-    lastMillis = m;
+    lastMillis = loopMillis;
     readTime(lastDateTime);
     unsigned long ls = fromTime(lastDateTime);
     if (ls != lastSeconds)
@@ -496,11 +514,11 @@ void updateMenu()
 void loop()
 {
     //  Say, kids, what time is it?
-    m = millis();
+    loopMillis = millis();
     changed = false;  //  did I change anything on the display?
 
     //  colon blinkage
-    colonIsBlinked = ((m % 1000) < 800);
+    colonIsBlinked = ((loopMillis % 1000) < SOLID_BLINK_TIME);
     if (colonIsBlinked != colonBlink)
     {
         colonBlink = colonIsBlinked;
@@ -508,7 +526,7 @@ void loop()
     }
 
     //  check for timers and time/date changing, every so often
-    if ((long)m - (long)lastMillis >= 100)
+    if ((long)loopMillis - (long)lastMillis >= 100)
     {
         updatePeriodical();
     }

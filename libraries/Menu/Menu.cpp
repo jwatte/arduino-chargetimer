@@ -13,6 +13,7 @@ void deltaUpdate(LiquidCrystal &lcd, char const *src, char *dst, unsigned char x
 {
     bool move = true;
     bool clear = false;
+    bool changed = false;
     for (int i = 0; i < 16; ++i)
     {
         if (src[i] == 0)
@@ -22,6 +23,7 @@ void deltaUpdate(LiquidCrystal &lcd, char const *src, char *dst, unsigned char x
         char ch = clear ? ' ' : src[i];
         if (ch != dst[i])
         {
+            changed = true;
             if (move)
             {
                 lcd.setCursor(x + i, y);
@@ -35,6 +37,12 @@ void deltaUpdate(LiquidCrystal &lcd, char const *src, char *dst, unsigned char x
             move = true;
         }
     }
+    /*
+    if (changed)
+    {
+        Serial.println(src);
+    }
+    */
 }
 
 Page::Page(Page *prt, Paint *p, Action *a) :
@@ -93,7 +101,7 @@ Menu::Menu(LiquidCrystal &l, void (*mx)()) :
 void Menu::button(unsigned char btn, unsigned char state)
 {
     unsigned char mask = 1 << btn;
-    if (state != BTN_DOWN)
+    if (state != BTN_INACTIVE)
     {
         curBtns |= mask;
     }
