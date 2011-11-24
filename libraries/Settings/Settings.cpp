@@ -18,7 +18,9 @@ bool SettingsStore::load()
     last_ = (cs == ck);
     if (!last_)
     {
+        /*
         Serial.print("cksum "); Serial.print(cs, HEX); Serial.print(" eeprom "); Serial.println(ck, HEX);
+        */
         memset(ptr_, 0, sz_);
     }
     return last_;

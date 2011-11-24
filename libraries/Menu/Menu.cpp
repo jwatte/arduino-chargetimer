@@ -188,7 +188,9 @@ void Menu::action(unsigned char btn, Menu *m)
 
 void Menu::gotoPage(Page *p)
 {
+    /*
     Serial.print("gotoPage("); Serial.print((int)p, DEC); Serial.println(")");
+    */
     if (curPage)
     {
         curPage->exit();

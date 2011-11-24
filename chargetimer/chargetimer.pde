@@ -94,7 +94,6 @@ unsigned int readKey(unsigned int key, char serialKey)
 {
     //    allow keyboard-driven debugging (ultimate in laziness!)
     if (serialKey == '1' + key - A0) {
-        Serial.println("CHAR");
         return BTN_ACTIVE;
     }
     if (analogRead(key) > 500) {
@@ -107,10 +106,12 @@ unsigned int readKey(unsigned int key, char serialKey)
 bool anyKeyDown()
 {
     char ch = 0;
+    /*
     if (Serial.available())
     {
         ch = Serial.read();
     }
+    */
     return readKey(A0, ch) == BTN_ACTIVE || 
         readKey(A1, ch) == BTN_ACTIVE || 
         readKey(A2, ch) == BTN_ACTIVE || 
@@ -249,8 +250,10 @@ void waitForAnyButtonPress()
 //  Diagnostic blink sequence
 void blinkTimes(unsigned char times, unsigned int onTime, unsigned int offTime)
 {
+    /*
     Serial.print("blinkTimes() ");
     Serial.println(times, DEC);
+    */
     while (true)
     {
         for (unsigned char ix = 0; ix != times; ++ix)
@@ -267,6 +270,7 @@ void blinkTimes(unsigned char times, unsigned int onTime, unsigned int offTime)
 //  leftmost and rightmost button brings up user reset
 bool isResetKeyCombo()
 {
+    /*
     if (Serial.available())
     {
         if (Serial.read() == 'R')
@@ -274,6 +278,7 @@ bool isResetKeyCombo()
             return true;
         }
     }
+    */
     return readKey(A0, 0) == BTN_ACTIVE && readKey(A3, 0) == BTN_ACTIVE;
 }
 
@@ -287,9 +292,11 @@ void setup()
     digitalWrite(LED_PIN, HIGH);
     delay(10);
 
+    /*
     //  Initialize serial port  
     Serial.begin(9600); // for debugging
     delay(10);
+    */
 
     //  Initialize settings; read from EEPROM  
     new ((void *)prefs_) Settings<Prefs>();
@@ -302,7 +309,9 @@ void setup()
     //  print the firmware version
     lcd.begin(16, 2);  //  for display
     lcd.clear();
+    /*
     Serial.println("Firmware " __TIME__ " " __DATE__);
+    */
     lcd.clear();
     lcd.setCursor(0, 0);
     lcd.print("F/w " __DATE__);
@@ -322,9 +331,11 @@ void setup()
     bool isReset = isResetKeyCombo();
     if (timeNotOk || eeNotOk || isReset)
     {
+        /*
         if (timeNotOk) Serial.println("timeNotOk");
         if (eeNotOk) Serial.println("eeNotOk");
         if (isReset) Serial.println("isReset");
+        */
 
         //  for debugging, to force a "bad eeprom" checksum, uncomment this
         //  prefs.nukeStore();
@@ -356,7 +367,9 @@ void setup()
         if (!prefs.lastOk())
         {
             //  This probably means that the eeprom is dead
+            /*
             Serial.println("prefs failed");
+            */
             lcd.clear();
             paintProgmem(lcd, ps_EEPROMDead, 0, 0);
             BAD_EEPROM();
@@ -366,7 +379,9 @@ void setup()
     //  OK, we're done!
     lcd.clear();
     menu.reset();
+    /*
     Serial.println("end setup()");
+    */
     //  turn off the indicator light
     digitalWrite(LED_PIN, LOW);
 }
@@ -453,6 +468,7 @@ void updatePeriodical()
     }
     if (otime <= lastSeconds)
     {
+        /*
         if (etime != 0)
         {
             //    shouldn't be on and off at the same time!
@@ -461,6 +477,7 @@ void updatePeriodical()
             Serial.print("; otime=");
             Serial.println(otime);
         }
+        */
         //    should be off -- so make sure we signal off-ness
         otime = 0;
         wasCancelled = false;
@@ -470,7 +487,9 @@ void updatePeriodical()
         //    switched state
         if (otime == 0 || !wasCancelled)
         {
+            /*
             Serial.print("onUntilTime to "); Serial.print(otime); Serial.print(" from "); Serial.println(onUntilTime);
+            */
             onUntilTime = otime;
             changed = true;
             if (otime == 0)
@@ -496,11 +515,13 @@ void updateMenu()
     }
 
     char ch = 0;
+    /*
     if (Serial.available())
     {
         ch = Serial.read();
         Serial.print(ch);
     }
+    */
     //  tell the menu about our button state  
     menu.button(0, readKey(A0, ch));
     menu.button(1, readKey(A1, ch));
