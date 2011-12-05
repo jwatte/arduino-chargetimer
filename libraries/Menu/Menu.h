@@ -10,6 +10,7 @@ class Menu;
 extern char menuScratchpad[21];
 
 void paintProgmem(LiquidCrystal &lcd, prog_char const *str, unsigned char x, unsigned char y);
+void deltaUpdate(LiquidCrystal &lcd, char const *src, char *dst, unsigned char x, unsigned char y);
 
 
 class Paint
