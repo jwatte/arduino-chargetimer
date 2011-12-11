@@ -23,6 +23,7 @@
 #include <LiquidCrystal.h>
 #include <Menu.h>
 #include <stdio.h>
+#include <Settings.h>
 
 #define TEMP_APIN 0
 #define BTN_DPIN 4
@@ -31,22 +32,26 @@
 
 #define NUM_PAGES 3
 
-// After turning on, stay on no longer than this
+//  After turning on, stay on no longer than this
 #define RELAY_ON_MILLIS 300000
-// After turning off because temp went up, wait at list this many millis before turning on again
-#define TEMP_RELAY_HYSTERESIS_TIME 15000
-// After turning off, stay off for this long until allowing on again
+//  After turning off because temp went up, wait at list this many millis before turning on again
+#define TEMP_RELAY_HYSTERESIS_TIME 300000
+//  After turning off, stay off for this long until allowing on again
 #define RELAY_OFF_MILLIS 300000
-// After turning backlight on, stay on for this long
+//  After turning backlight on, stay on for this long
 #define BACKLIGHT_ON_MILLIS 7000
-// Long button press is button pressed this long
+//  Long button press is button pressed this long
 #define LONG_BUTTON_PRESS_MILLIS 1000
 //  Button debounce time
 #define BUTTON_DEBOUNCE_MILLIS 50
+//  Runtime save interval (must be power of two)
+#define RUNTIME_SAVE_SECONDS 4096
 
 const float trimMvPerC = 10.0f;
 const float trimOffsetC = -7.5f;
 const float triggerTempF = 38.0f;
+//  If below this temperature, don't use the off cycle
+const float offDisallowedTempF = 30.0f;
 
 inline void *operator new(size_t, void *arg) { return arg; }
 
@@ -69,6 +74,21 @@ unsigned long millisecondsRelayOn = 0;
 float maxTempF = -100;
 float minTempF = 200;
 
+struct SavePrefs
+{
+  unsigned long onSeconds;
+  unsigned char version;
+};
+
+Settings<SavePrefs> prefs;
+
+void saveRuntime()
+{
+  prefs->onSeconds = secondsRelayOn;
+  prefs->version = 1;
+  prefs.save();
+}
+
 void setup() {
   lcd.begin(16, 2);
   lcd.clear();
@@ -78,6 +98,12 @@ void setup() {
   digitalWrite(RELAY_DPIN, 0);
   pinMode(BACKLIGHT_DPIN, OUTPUT);
   digitalWrite(BACKLIGHT_DPIN, 1);
+  prefs.load();
+  if (!prefs.lastOk())
+  {
+    //  write as 0
+    saveRuntime();
+  }
   delay(1000);
   digitalWrite(BACKLIGHT_DPIN, 0);
   lastMillis = millis();
@@ -101,6 +127,10 @@ void accumulateRelayTime(unsigned long dTime)
     unsigned long delta = millisecondsRelayOn / 1000;
     secondsRelayOn += delta;
     millisecondsRelayOn -= delta * 1000;
+    if (!(secondsRelayOn & (RUNTIME_SAVE_SECONDS - 1)))
+    {
+      saveRuntime();
+    }
   }
 }
 
@@ -204,6 +234,10 @@ void loop() {
     if (relayOnUntil - lastMillis <= 0)
     {
       relayOnUntil = 0;
+      if (tempF > offDisallowedTempF)
+      {
+        relayOffUntil = RELAY_OFF_MILLIS;
+      }
     }
   }
   if (backlightOnUntil != 0)
@@ -225,6 +259,7 @@ void loop() {
   else if (relayOnUntil != 0)
   {
     relayOnUntil = 0;
+    // don't cycle the relay too often
     relayOffUntil = TEMP_RELAY_HYSTERESIS_TIME;
   }
   
@@ -259,6 +294,7 @@ void loop() {
         minTempF = tempF;
         maxTempF = tempF;
         page = 1;
+        saveRuntime();
       }
     }
     else
