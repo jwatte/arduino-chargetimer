@@ -16,7 +16,7 @@ void deltaUpdate(LiquidCrystal &lcd, char const *src, char *dst, unsigned char x
     bool changed = false;
     for (int i = 0; i < 16; ++i)
     {
-        if (src[i] == 0)
+        if (!clear && src[i] == 0)
         {
             clear = true;
         }

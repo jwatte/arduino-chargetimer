@@ -7,7 +7,7 @@
  *   Current temperature/status
  *   Min/Max temperature
  *   Elapsed time on
- * Long-press resets the elapsed/min/max values
+ * Long. elapsed/min/max values
  * The LCD sleeps with no backlight until button pushed
  *
  * Pinout:
@@ -24,6 +24,7 @@
 #include <Menu.h>
 #include <stdio.h>
 #include <Settings.h>
+#include <avr/wdt.h>
 
 #define TEMP_APIN 0
 #define BTN_DPIN 4
@@ -57,7 +58,7 @@ inline void *operator new(size_t, void *arg) { return arg; }
 
 LiquidCrystal lcd(2, 3, 5, 6, 7, 8);
 Menu menu(lcd);
-char displayData[2][16];
+char displayData[2][20];
 float temp = 150.0f;
 long lastMillis = 0;
 long backlightOnUntil = 0;
@@ -68,9 +69,9 @@ bool buttonState = false;
 bool relayIsOn = false;
 long buttonDebounceMillis = 0;
 long buttonChangeMillis = 0;
-unsigned long relayOnTime = 0;
-unsigned long secondsRelayOn = 0;
-unsigned long millisecondsRelayOn = 0;
+long relayOnTime = 0;
+long secondsRelayOn = 0;
+long millisecondsRelayOn = 0;
 float maxTempF = -100;
 float minTempF = 200;
 
@@ -90,6 +91,7 @@ void saveRuntime()
 }
 
 void setup() {
+  wdt_enable(WDTO_8S);
   lcd.begin(16, 2);
   lcd.clear();
   lcd.print("F/w " __DATE__);
@@ -107,11 +109,12 @@ void setup() {
   delay(1000);
   digitalWrite(BACKLIGHT_DPIN, 0);
   lastMillis = millis();
+  wdt_enable(WDTO_2S);
 }
 
 float numToTempF(float num)
 {
-  //  750 mV at 25 C
+      //  750 mV at 25 C
   //  10 mV per C
   //  5000 mV reference == 1023
   float mV = 5000 * num / 1023;
@@ -347,6 +350,8 @@ void loop() {
   {
     digitalWrite(BACKLIGHT_DPIN, 0);
   }
+  
+  wdt_reset();
 }
 
 
