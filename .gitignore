@@ -9,3 +9,5 @@
 *.dll
 *.lib
 *.pdb
+*/bin/*
+*/obj/*
