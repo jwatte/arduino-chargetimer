@@ -14,29 +14,67 @@ namespace GenerateSerial
         public AVRemoteExplorerForm()
         {
             InitializeComponent();
-            serialPortAVR.Open();
+            GrabSerialPort();
             serialPortAVR.DataReceived += new System.IO.Ports.SerialDataReceivedEventHandler(serialPort1_DataReceived);
             Application.Idle += new EventHandler(Application_Idle);
         }
 
+        private void GrabSerialPort()
+        {
+            if (timeoutToBack == 0)
+            {
+                Console.WriteLine("Getting serial port");
+                serialPortAVR.Open();
+            }
+            timeoutToBack = 100;
+        }
+
+        private void ReleaseSerialPort()
+        {
+            if (timeoutToBack > 0)
+            {
+                Console.WriteLine("Releasing serial port");
+                serialPortAVR.Close();
+            }
+            timeoutToBack = 0;
+        }
+
+        public bool SerialPortGrabbed { get { return timeoutToBack > 0; } }
+
         int oldbtr = -1;
         int oldbtw = -1;
+        int timeoutToBack = 0;
 
         void Application_Idle(object sender, EventArgs e)
         {
-            int btr = serialPortAVR.BytesToRead;
-            if (btr != oldbtr)
+            if (this.Focused || (this.ActiveControl != null && this.ActiveControl.Focused))
             {
-                labelToRead.Text = btr.ToString();
+                GrabSerialPort();
             }
-            int btw = serialPortAVR.BytesToWrite;
-            if (btw != oldbtw)
+            if (timeoutToBack > 0)
             {
-                labelToWrite.Text = btw.ToString();
-            }
-            if (btr > 0)
-            {
-                DoRead();
+                int btr = serialPortAVR.BytesToRead;
+                if (btr != oldbtr)
+                {
+                    labelToRead.Text = btr.ToString();
+                }
+                int btw = serialPortAVR.BytesToWrite;
+                if (btw != oldbtw)
+                {
+                    labelToWrite.Text = btw.ToString();
+                }
+                if (btr > 0)
+                {
+                    DoRead();
+                }
+                if (timeoutToBack == 1)
+                {
+                    ReleaseSerialPort();
+                }
+                else
+                {
+                    timeoutToBack -= 1;
+                }
             }
             lock (ibuf)
             {
@@ -48,7 +86,7 @@ namespace GenerateSerial
                     {
                         //  null command
                         ibuf.RemoveRange(0, 1);
-                        listBoxInfo.Items.Add("-> null cmd");
+                        addText("-> null cmd");
                     }
                     else
                     {
@@ -132,21 +170,22 @@ namespace GenerateSerial
 
         public void on_error(sbyte[] data)
         {
-            listBoxInfo.Items.Add(String.Format("-> error('{0}')", stringFromData(data)));
+            addText(String.Format("-> error('{0}')", stringFromData(data)));
         }
 
         public void on_status(sbyte[] data)
         {
-            listBoxInfo.Items.Add(String.Format("-> status('{0}')", stringFromData(data)));
+            addText(String.Format("-> status('{0}')", stringFromData(data)));
         }
 
         public void on_unknown(sbyte code, sbyte[] data)
         {
-            listBoxInfo.Items.Add(String.Format("-> unknown code {0} ({1})", code, hexdump(data)));
+            addText(String.Format("-> unknown code {0} ({1})", code, hexdump(data)));
         }
 
         public void send_cmd(byte cmd, byte[] data)
         {
+            GrabSerialPort();
             byte len = 2;
             if (data != null)
             {
@@ -194,6 +233,7 @@ namespace GenerateSerial
             {
                 codes[nCodes] |= 0x8000;
             }
+            ++nCodes;
         }
 
         private void addBitsNEC(uint data, int count)
@@ -242,6 +282,12 @@ namespace GenerateSerial
             send_codes();
         }
 
+        public void addText(string s)
+        {
+            listBoxInfo.Items.Add(s);
+            listBoxInfo.SelectedIndex = listBoxInfo.Items.Count - 1;
+        }
+
         public static ushort UInt16Parse(String s)
         {
             if (s.Length > 2 && s[0] == '0' && (s[1] == 'x' || s[1] == 'X'))
@@ -262,13 +308,13 @@ namespace GenerateSerial
 
         private void buttonReset_Click(object sender, EventArgs e)
         {
-            listBoxInfo.Items.Add("Reset");
+            addText("Reset");
             this.send_reset();
         }
 
         private void buttonStatus_Click(object sender, EventArgs e)
         {
-            listBoxInfo.Items.Add("Status");
+            addText("Status");
             this.send_status();
         }
 
@@ -278,7 +324,7 @@ namespace GenerateSerial
             {
                 ushort carrier = UInt16Parse(textBoxCarrier.Text);
                 byte dutycycle = byteParse(textBoxDutyCycle.Text);
-                listBoxInfo.Items.Add(String.Format("carrier {0} dutycycle {1}", carrier, dutycycle));
+                addText(String.Format("carrier {0} dutycycle {1}", carrier, dutycycle));
                 this.send_carrier(carrier, dutycycle);
             }
             catch (System.Exception x)
@@ -293,7 +339,7 @@ namespace GenerateSerial
             {
                 ushort target = UInt16Parse(textBoxTargetNEC.Text);
                 byte cmd = byteParse(textBoxCmdNEC.Text);
-                listBoxInfo.Items.Add(String.Format("NEC target {0} cmd {1}", target, cmd));
+                addText(String.Format("NEC target {0} cmd {1}", target, cmd));
                 this.send_nec(target, cmd);
             }
             catch (System.Exception x)

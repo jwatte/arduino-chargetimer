@@ -14,6 +14,7 @@
 #define PIN_MODULATOR 11
 #define PIN_STATUS 7
 #define PIN_SPI_SS 10
+#define PIN_SPI_CK 13
 
 #define CMD_RESET 0
 //  no payload
@@ -49,8 +50,8 @@ unsigned long receiveMillis = 0;
 
 
 void setup_spi();
-void disable_spi();
 void set_carrier(unsigned short carrier, unsigned char duty);
+void ok(unsigned char code);
 
 void setup() {
   wdt_reset();
@@ -58,8 +59,8 @@ void setup() {
 
   pinMode(PIN_MODULATOR, OUTPUT);  //  PB3, OC2A, MOSI  --  modulator
   digitalWrite(PIN_MODULATOR, LOW);
-  pinMode(13, OUTPUT);  //  PB5, SCK, Arduino status LED (unfortunate)
-  digitalWrite(13, HIGH);
+  pinMode(PIN_SPI_CK, OUTPUT);  //  PB5, SCK, Arduino status LED (unfortunate)
+  digitalWrite(PIN_SPI_CK, HIGH);
   pinMode(PIN_STATUS, OUTPUT);   //  PB5, SCK, application status LED
   //  flash indicator while booting
   digitalWrite(PIN_STATUS, HIGH);
@@ -69,6 +70,7 @@ void setup() {
   pinMode(PIN_CARRIER, OUTPUT);   //  PD3, OC2B  --  carrier
   digitalWrite(PIN_CARRIER, LOW);
 
+  wdt_reset();
   //  initialize serial port
   Serial.begin(57600);
 
@@ -80,20 +82,24 @@ void setup() {
 
   wdt_reset();
   delay(100);
-  digitalWrite(13, LOW);
+  digitalWrite(PIN_SPI_CK, LOW);
   digitalWrite(PIN_STATUS, LOW);
   delay(100);
-  digitalWrite(13, HIGH);
+  digitalWrite(PIN_SPI_CK, HIGH);
   digitalWrite(PIN_STATUS, HIGH);
   delay(100);
-  digitalWrite(13, LOW);  //  and then it turns into a clock
+  digitalWrite(PIN_SPI_CK, LOW);  //  and then it turns into a clock
   digitalWrite(PIN_STATUS, LOW);
   
   //  set up SPI clock
   setup_spi();
+  //  tell someone that we've rebooted
+  ok(0);
 }
 
 void setup_spi() {
+  //  enable SPI
+  PRR = PRR | (1 << PRSPI);
   //  turn off fast mode if it's on
   SPSR = 0;
   //  divide down to 125 kHz
@@ -185,10 +191,15 @@ void blast_samples() {
   unsigned char mval = 0;
   unsigned short ticks = 0;
   //  write SPI just to get started
-  SPDR = 0;
-  for (unsigned char i = 0; i != nSamples || ticks != 0;) {
-    //  generate new byte -- this must run faster than 64 microseconds!
+  SPDR = 0x00;
+  unsigned char i = 0;
+  while ((i != nSamples) || (ticks != 0)) {
+    //  Spend time while the data is shifted out generating the next data byte.
+    //  This must run faster than 64 microseconds!
     //  (does it? my guess is this takes about 30 us... but I should measure!)
+    //  The theory is that I can take an interrupt while doing this, but then 
+    //  defer interrupts while waiting for the next byte to go out, to get 
+    //  tight timing.
     unsigned char nuByte = 0;
     for (unsigned char j = 0; j != 8; ++j) {
       if (ticks == 0) {
@@ -205,12 +216,14 @@ void blast_samples() {
         }
         else {
           ticks = 8 - j;
+          mval = 0;
         }
       }
       nuByte = nuByte | (bitvals[j] & mval);
       ticks -= 1;
     }
     //  disable interrupts -- I know I won't call this with interrupts disabled
+    wdt_reset();
     cli();
     //  wait for MOSI to complete
     while (!(SPSR & (1 << SPIF))) {
@@ -221,10 +234,12 @@ void blast_samples() {
     //  enable interrupts -- I know I won't call this with interrupts disabled
     sei();
   }
+  ok(0xfbu);
   //  wait for pulses to clear
   while (!(SPSR & (1 << SPIF))) {
-    // do nothing, with interrupts off!
+    // do nothing, until complete!
   }
+  ok(0xfeu);
   digitalWrite(11, LOW);  //  turn off modulator for sure
 }
 
@@ -254,6 +269,7 @@ void cmd_carrier() {
   if (duty < 1 || duty > 99) {
     error("bad dutycycle");
   }
+  set_carrier(freq, duty);
 }
 
 void cmd_codes() {
@@ -263,9 +279,10 @@ void cmd_codes() {
     error("bad count");
   }
   unsigned long time = millis();
-  for (unsigned char i = 0; i != nCodes; ++i) {
+  unsigned char i = 0;
+  while (i != nCodes) {
     if (Serial.available() < 2) {
-      if (millis() - time > 1000) {
+      if (millis() - time > 500) {
         //  pre-empt the watchdog -- this really should take much less than 100 ms
         error("receive timeout");
       }
@@ -277,6 +294,8 @@ void cmd_codes() {
       unsigned char hi = (unsigned char)Serial.read();
       unsigned char lo = (unsigned char)Serial.read();
       samples[i] = (hi << 8) + lo;
+      ++i;
+      wdt_reset();
     }
   }
   nSamples = nCodes;
