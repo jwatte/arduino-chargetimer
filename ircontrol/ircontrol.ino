@@ -11,7 +11,7 @@
 #include <avr/interrupt.h>
 
 #define PIN_CARRIER 3
-#define PIN_MODULATOR 11
+#define PIN_MODULATOR 4
 #define PIN_STATUS 7
 #define PIN_SPI_SS 10
 #define PIN_SPI_CK 13
@@ -54,13 +54,13 @@ void set_carrier(unsigned short carrier, unsigned char duty);
 void ok(unsigned char code);
 
 void setup() {
-  wdt_reset();
   wdt_enable(WDTO_2S);
+  wdt_reset();
 
   pinMode(PIN_MODULATOR, OUTPUT);  //  PB3, OC2A, MOSI  --  modulator
-  digitalWrite(PIN_MODULATOR, LOW);
+  digitalWrite(PIN_MODULATOR, HIGH);
   pinMode(PIN_SPI_CK, OUTPUT);  //  PB5, SCK, Arduino status LED (unfortunate)
-  digitalWrite(PIN_SPI_CK, HIGH);
+  digitalWrite(PIN_SPI_CK, LOW);
   pinMode(PIN_STATUS, OUTPUT);   //  PB5, SCK, application status LED
   //  flash indicator while booting
   digitalWrite(PIN_STATUS, HIGH);
@@ -82,13 +82,13 @@ void setup() {
 
   wdt_reset();
   delay(100);
-  digitalWrite(PIN_SPI_CK, LOW);
+  digitalWrite(PIN_MODULATOR, LOW);
   digitalWrite(PIN_STATUS, LOW);
   delay(100);
-  digitalWrite(PIN_SPI_CK, HIGH);
+  digitalWrite(PIN_MODULATOR, HIGH);
   digitalWrite(PIN_STATUS, HIGH);
   delay(100);
-  digitalWrite(PIN_SPI_CK, LOW);  //  and then it turns into a clock
+  digitalWrite(PIN_MODULATOR, LOW);  //  and then it turns into a clock
   digitalWrite(PIN_STATUS, LOW);
   
   //  set up SPI clock
@@ -98,12 +98,14 @@ void setup() {
 }
 
 void setup_spi() {
+  /*
   //  enable SPI
   PRR = PRR | (1 << PRSPI);
   //  turn off fast mode if it's on
   SPSR = 0;
   //  divide down to 125 kHz
   SPCR = (1 << SPE) | (1 << MSTR) | (1 << CPHA) | (1 << SPR1) | (1 << SPR0);
+  */
 }
 
 unsigned char shiftBits[] = {
@@ -144,14 +146,14 @@ void set_carrier(unsigned short carrier, unsigned char duty) {
 void reset() {
   //  Set watchdog to something short-ish.
   //  Then wait around for watchdog to reset chip!
-  wdt_enable(WDTO_1S);
-  digitalWrite(11, LOW);  //  turn off carrier
-  digitalWrite(3, LOW);   //  turn off modulator
+  wdt_enable(WDTO_2S);
+  digitalWrite(PIN_CARRIER, LOW);  //  turn off carrier
+  digitalWrite(PIN_MODULATOR, LOW);   //  turn off modulator
   while (true) {
     //  wait for watchdog to reset chip, flashing light
-    digitalWrite(8, HIGH);
+    digitalWrite(PIN_STATUS, HIGH);
     delay(75);
-    digitalWrite(8, LOW);
+    digitalWrite(PIN_STATUS, LOW);
     delay(100);
   }
 }
@@ -186,7 +188,7 @@ unsigned char bitvals[8] = {
   0x01
 };
 
-void blast_samples() {
+void blast_samples_spi() {
   //  make MOSI modulate based on samples
   unsigned char mval = 0;
   unsigned short ticks = 0;
@@ -240,6 +242,34 @@ void blast_samples() {
     // do nothing, until complete!
   }
   ok(0xfeu);
+  digitalWrite(11, LOW);  //  turn off modulator for sure
+}
+
+void blast_samples() {
+  unsigned char i = 0;
+  unsigned long tSample = micros();
+  while (i != nSamples) {
+    wdt_reset();
+    unsigned short sTime = samples[i];
+    i += 1;
+    if (sTime & 0x8000) {
+      digitalWrite(PIN_MODULATOR, HIGH);
+    }
+    else {
+      digitalWrite(PIN_MODULATOR, LOW);
+    }
+    unsigned long target = (sTime & 0x7fff) * 8;
+    while (true) {
+      unsigned long nuRead = micros();
+      if (nuRead - tSample >= target) {
+        tSample = nuRead;
+        break;
+      }
+      if (nuRead - tSample > 1000000) {  //   1S max
+        break;
+      }
+    }
+  }
   digitalWrite(11, LOW);  //  turn off modulator for sure
 }
 
